@@ -6,6 +6,9 @@
 /perf.data.old
 /massif.out.*
 /smoke-last.json
+/test/resources/mongo-data
+/cmake-build-debug
+core
 
 *~
 *.swp
