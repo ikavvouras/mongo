@@ -121,6 +121,9 @@ using std::string;
 using std::stringstream;
 using std::unique_ptr;
 
+static const StringData CURSOR_FIELD_NAME = "cursor";
+static const StringData FIRST_BATCH_FIELD_NAME = "firstBatch";
+
 class CmdShutdownMongoD : public CmdShutdown {
 public:
     virtual void help(stringstream& help) const {
@@ -1478,6 +1481,11 @@ void copyBufBuilder(BufBuilder *target, BufBuilder *source) {
     target->appendBuf(source->buf(), (size_t) source->len());
 }
 
+MutableDocument* createMutableDocument(BSONObj &bsonObj) {
+    Document document(bsonObj);
+    return new MutableDocument(document);
+}
+
 // This really belongs in commands.cpp, but we need to move it here so we can
 // use shardingState and the repl coordinator without changing our entire library
 // structure.
@@ -1597,62 +1605,41 @@ bool Command::run(OperationContext* txn,
     if (request.getCommandName() == "find") {
         BSONObj resultBsonObj = inPlaceReplyBob.done();
 
-        log() << "resultBsonObj" << resultBsonObj.toString();
+//        log() << "resultBsonObj" << resultBsonObj.toString();
 
-        BSONObj cursorField = resultBsonObj.getObjectField("cursor");
+        BSONObj cursorField = resultBsonObj.getObjectField(CURSOR_FIELD_NAME);
+        BSONElement firstBatchElement = cursorField.getField(FIRST_BATCH_FIELD_NAME);
 
-        Document resultDocument(resultBsonObj);
-        MutableDocument resultMutableDocument(resultDocument);
-
-        Document d(cursorField); // TODO handle Documents instead of BSON
-        MutableDocument md(d);
-
-        BSONElement firstBatchElement = cursorField.getField("firstBatch");
-
-        BSONArrayBuilder arrayBuilder;
+        BSONArrayBuilder resultsArrayBuilder;
         // try to remove objects
         BSONObjIterator i(firstBatchElement.Obj());
         while (i.more()) {
             BSONElement e = i.next();
             if (e.Obj().getField("x").numberDouble() != 1) {
-                arrayBuilder.append(e);
+                resultsArrayBuilder.append(e);
                 log() << "x :: " << e.Obj().getField("x").numberDouble();
             }
         }
 
-        const BSONArray &resultsArray = arrayBuilder.arr();
-        md.setField("firstBatch", Value(resultsArray));
+        const BSONArray &resultsArray = resultsArrayBuilder.arr();
 
-        d = md.freeze(); // TODO check if the assignment is reduntant
-        log() << "md: " << d.toString();
+//        MutableDocument cursorFieldMutableDocument(Document(cursorField));
+        MutableDocument *cursorFieldMutableDocument = createMutableDocument(cursorField);
+        cursorFieldMutableDocument->setField(FIRST_BATCH_FIELD_NAME, Value(resultsArray));
+        Document cursorFieldDocument = cursorFieldMutableDocument->freeze();
+        delete cursorFieldMutableDocument;
+        log() << "cursorFieldMutableDocument: " << cursorFieldDocument.toString();
 
-        resultMutableDocument.setField("cursor", Value(d));
-        resultDocument = resultMutableDocument.freeze();
+        MutableDocument *resultMutableDocument = createMutableDocument(resultBsonObj);
+        resultMutableDocument->setField(CURSOR_FIELD_NAME, Value(cursorFieldDocument));
+        Document resultDocument = resultMutableDocument->freeze();
+        delete resultMutableDocument;
 
-//        std::vector<BSONElement> findData = firstBatchElement.Array();
-//        log() << "findData.size(): " << findData.size();
-//
-//        for (BSONElement bsonElement : findData) {
-//            BSONElement xBsonElement = bsonElement.Obj().getField("finalValue");
-//
-////          changes value of BsonElement
-////            double *rawValue = (double *) xBsonElement.value();
-////            log() << "value " << *rawValue;
-////            double v = 1;
-////            std::swap(*rawValue, v);
-//            log() << "x: " << xBsonElement.numberDouble();
-//        }
-
-        BufBuilder localBufBuilder;
+        BufBuilder &localBufBuilder = replyBuilder->getInPlaceReplyBuilder(bytesToReserve);;
         BSONObjBuilder localBsonObjBuilder(localBufBuilder);
-
-
         resultDocument.toBson(&localBsonObjBuilder);
-        BSONObj finalResultBsonObj = localBsonObjBuilder.done();
-        log() << "~~ " << finalResultBsonObj.toString();
 
-        BufBuilder& finalBufBuilder = replyBuilder->getInPlaceReplyBuilder(bytesToReserve);
-        copyBufBuilder(&finalBufBuilder, &localBufBuilder);
+        localBsonObjBuilder.doneFast();
     } else {
         inPlaceReplyBob.doneFast();
     }
