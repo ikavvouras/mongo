@@ -17,6 +17,7 @@ env.SConscript(
         'geo',
         'index',
         'matcher',
+        'migration',
         'ops',
         'pipeline',
         'query',

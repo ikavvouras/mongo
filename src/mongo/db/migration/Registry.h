@@ -6,18 +6,30 @@
 #include <set>
 #include <string>
 
-class Registry {
-    std::map<std::string, void*> inserted;
-    std::map<std::string, void*> updated;
-    std::set<std::string> removed;
-public:
-    void* read(std::string id);
+namespace mongo {
 
-    void* write(std::string id, void* object);
+    using std::string;
 
-    void* update(std::string id, void* object);
+    class Registry {
+        std::map<string, void *> inserted;
+        std::map<string, void *> updated;
+        std::set<string> removed;
+    public:
+        void *read(string id);
 
-    void remove(std::string id);
+        void *write(string id, void *object);
 
-    bool hasUpdated(const std::string &id) const;
-};
+        void *update(string id, void *object);
+
+        void remove(string id);
+
+        bool hasUpdated(const string &id) const;
+
+        const std::map<string, void *> &getInserted() const;
+
+        const std::map<string, void *> &getUpdated() const;
+
+        const std::set<string> &getRemoved() const;
+    };
+
+}

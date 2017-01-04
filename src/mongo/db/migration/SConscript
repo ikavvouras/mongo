@@ -1,0 +1,12 @@
+# -*- mode: python -*-
+
+Import("env")
+
+env.Library(
+    target="migration",
+    source=[
+        "Migrator.cpp",
+        "Registry.cpp"
+    ],
+    LIBDEPS=[],
+)

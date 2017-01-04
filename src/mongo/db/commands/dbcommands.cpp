@@ -113,6 +113,8 @@
 #include "mongo/util/scopeguard.h"
 #include "mongo/db/pipeline/document.h"
 
+#include "mongo/db/migration/Migrator.h"
+
 namespace mongo {
 
 using std::endl;
@@ -1486,6 +1488,10 @@ MutableDocument* createMutableDocument(BSONObj &bsonObj) {
     return new MutableDocument(document);
 }
 
+bool setContainsId(const std::set<string> &s, const string &id) {
+    return s.find(id) != s.end();
+}
+
 // This really belongs in commands.cpp, but we need to move it here so we can
 // use shardingState and the repl coordinator without changing our entire library
 // structure.
@@ -1509,8 +1515,10 @@ bool Command::run(OperationContext* txn,
     // run expects const db std::string (can't bind to temporary)
     const std::string db = request.getDatabase().toString();
 
+    Migrator *migrator = Migrator::getInstance();
+
     BufBuilder* builder; // TODO free
-    if (request.getCommandName() == "find") {
+    if (request.getCommandName() == "find" && migrator->isRegistryEnabled()) {
         builder = new BufBuilder();
     } else {
         builder = &(replyBuilder->getInPlaceReplyBuilder(bytesToReserve));
@@ -1552,6 +1560,7 @@ bool Command::run(OperationContext* txn,
     bool result;
     if (!supportsWriteConcern(cmd)) {
         // TODO: remove queryOptions parameter from command's run method.
+        log() << "non write command: " << cmd.toString();
         result = run(txn, db, cmd, 0, errmsg, inPlaceReplyBob);
     } else {
         // Change the write concern while running the command.
@@ -1559,7 +1568,27 @@ bool Command::run(OperationContext* txn,
         ON_BLOCK_EXIT([&] { txn->setWriteConcern(oldWC); });
         txn->setWriteConcern(wcResult.getValue());
 
-        result = run(txn, db, cmd, 0, errmsg, inPlaceReplyBob);
+        // TODO catch update cmd -- also check mongo::CmdUpdate
+
+        log() << "cmd :: " << cmd.toString();
+
+        if (request.getCommandName() == "update" && migrator->isRegistryEnabled()) {
+            for (BSONElement updatesElement : cmd.getField("updates").Array()) {
+                BSONElement query = updatesElement.Obj().getField("q");
+                BSONElement updates = updatesElement.Obj().getField("u");
+            }
+
+            BSONObj obj = fromjson("{ find: \"test_collection\", filter: {} }");
+            run(txn, db, obj, 0, errmsg, inPlaceReplyBob);
+
+            log() << "--> " << inPlaceReplyBob.asTempObj().toString();
+
+        } else {
+            result = run(txn, db, cmd, 0, errmsg, inPlaceReplyBob);
+        }
+
+        log() << "update: " << inPlaceReplyBob.asTempObj().toString();
+
 
         // Nothing in run() should change the writeConcern.
         dassert(SimpleBSONObjComparator::kInstance.evaluate(txn->getWriteConcern().toBSON() ==
@@ -1602,7 +1631,10 @@ bool Command::run(OperationContext* txn,
 
     appendCommandStatus(inPlaceReplyBob, result, errmsg);
 
-    if (request.getCommandName() == "find") {
+    if (request.getCommandName() == "find" && migrator->isRegistryEnabled()) {
+
+        Registry *registry = migrator->getRegistry();
+
         BSONObj resultBsonObj = inPlaceReplyBob.done();
 
 //        log() << "resultBsonObj" << resultBsonObj.toString();
@@ -1613,17 +1645,24 @@ bool Command::run(OperationContext* txn,
         BSONArrayBuilder resultsArrayBuilder;
         // try to remove objects
         BSONObjIterator i(firstBatchElement.Obj());
+        // TODO filter
         while (i.more()) {
             BSONElement e = i.next();
-            if (e.Obj().getField("x").numberDouble() != 1) {
+
+            string id = e.Obj().getField("_id").__oid().toString();
+
+            if (!setContainsId(registry->getRemoved(), id)) {
                 resultsArrayBuilder.append(e);
-                log() << "x :: " << e.Obj().getField("x").numberDouble();
+            } else if (registry->getUpdated().find(id) != registry->getUpdated().end()) {
+                BSONElement *updatedElement = (BSONElement *) registry->getUpdated().find(id)->second;
+                resultsArrayBuilder.append(*updatedElement);
             }
         }
 
+        // TODO add registry.inserted
+
         const BSONArray &resultsArray = resultsArrayBuilder.arr();
 
-//        MutableDocument cursorFieldMutableDocument(Document(cursorField));
         MutableDocument *cursorFieldMutableDocument = createMutableDocument(cursorField);
         cursorFieldMutableDocument->setField(FIRST_BATCH_FIELD_NAME, Value(resultsArray));
         Document cursorFieldDocument = cursorFieldMutableDocument->freeze();
