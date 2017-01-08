@@ -96,6 +96,9 @@
 #include "mongo/util/scopeguard.h"
 #include "mongo/util/time_support.h"
 
+#include "mongo/db/pipeline/document.h"
+#include "mongo/db/migration/Migrator.h"
+
 namespace mongo {
 using logger::LogComponent;
 using std::endl;
@@ -107,7 +110,20 @@ using std::stringstream;
 using std::unique_ptr;
 using std::vector;
 
-string dbExecCommand;
+    static const StringData CURSOR_FIELD_NAME = "cursor";
+    static const StringData FIRST_BATCH_FIELD_NAME = "firstBatch";
+
+    MutableDocument* createMutableDocument2(BSONObj &bsonObj) {
+        Document document(bsonObj);
+        return new MutableDocument(document);
+    }
+
+    bool setContainsId2(const std::set<string> &s, const string &id) {
+        return s.find(id) != s.end();
+    }
+
+
+    string dbExecCommand;
 
 MONGO_FP_DECLARE(rsStopGetMore);
 
@@ -255,9 +271,13 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
 
     auto curOp = CurOp::get(txn);
 
+    rpc::CommandRequest *req;
+
     try {
         // database is validated here
         rpc::CommandRequest request{&message};
+
+        req = &request;
 
         // We construct a legacy $cmd namespace so we can fill in curOp using
         // the existing logic that existed for OP_QUERY commands
@@ -277,6 +297,73 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
     }
 
     auto response = replyBuilder.done();
+
+    Migrator *migrator = Migrator::getInstance();
+    if (req->getCommandName() == "find" && migrator->isRegistryEnabled()) {
+        MsgData::View msg = response.buf();
+        log() << "response " << (void *) msg.data();
+        BSONObj resultBsonObj(msg.data());
+
+        Registry *registry = migrator->getRegistry();
+
+        log() << "resultBsonObj2" << resultBsonObj.toString();
+
+        BSONObj cursorField = resultBsonObj.getObjectField(CURSOR_FIELD_NAME);
+        BSONElement firstBatchElement = cursorField.getField(FIRST_BATCH_FIELD_NAME);
+
+        BSONArrayBuilder resultsArrayBuilder;
+        // try to remove objects
+        BSONObjIterator i(firstBatchElement.Obj());
+        // TODO filter
+        while (i.more()) {
+            BSONElement e = i.next();
+
+            string id = e.Obj().getField("_id").__oid().toString();
+
+            if (!setContainsId2(registry->getRemoved(), id)) {
+                resultsArrayBuilder.append(e);
+            } else if (registry->getUpdated().find(id) != registry->getUpdated().end()) {
+                BSONElement *updatedElement = (BSONElement *) registry->getUpdated().find(id)->second;
+                resultsArrayBuilder.append(*updatedElement);
+            }
+        }
+
+        // TODO add registry.inserted
+
+        const BSONArray &resultsArray = resultsArrayBuilder.arr();
+
+        MutableDocument *cursorFieldMutableDocument = createMutableDocument2(cursorField);
+        cursorFieldMutableDocument->setField(FIRST_BATCH_FIELD_NAME, Value(resultsArray));
+        Document cursorFieldDocument = cursorFieldMutableDocument->freeze();
+        delete cursorFieldMutableDocument;
+        log() << "cursorFieldMutableDocument2: " << cursorFieldDocument.toString();
+
+        MutableDocument *resultMutableDocument = createMutableDocument2(resultBsonObj);
+        resultMutableDocument->setField(CURSOR_FIELD_NAME, Value(cursorFieldDocument));
+        Document resultDocument = resultMutableDocument->freeze();
+        delete resultMutableDocument;
+
+        log() << "CommandReplyBuilder ---> ";
+        rpc::CommandReplyBuilder localReplyBuilder{};
+        size_t bytesToReserve = 0u;
+        BufBuilder &localBufBuilder = localReplyBuilder.getInPlaceReplyBuilder(bytesToReserve);
+        BSONObjBuilder localBsonObjBuilder(localBufBuilder);
+        resultDocument.toBson(&localBsonObjBuilder);
+        localBsonObjBuilder.doneFast();
+
+        log() << "CommandReplyBuilder ---> localReplyBuilder.done()";
+
+        BSONObjBuilder metadataBob; // TODO check metadata in replication/sharding
+        localReplyBuilder.setMetadata(metadataBob.done());
+
+        response = localReplyBuilder.done();
+
+        // assert -- TODO remove the following lines
+        MsgData::View msg2 = response.buf();
+        log() << "response2 " << (void *) msg2.data();
+        BSONObj resultBsonObj2(msg2.data());
+        log() << "resultBsonObj22" << resultBsonObj2.toString();
+    }
 
     curOp->debug().responseLength = response.header().dataLen();
 

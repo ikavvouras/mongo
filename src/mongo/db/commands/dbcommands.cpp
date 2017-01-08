@@ -1637,7 +1637,7 @@ bool Command::run(OperationContext* txn,
 
         BSONObj resultBsonObj = inPlaceReplyBob.done();
 
-//        log() << "resultBsonObj" << resultBsonObj.toString();
+        log() << "resultBsonObj" << resultBsonObj.toString();
 
         BSONObj cursorField = resultBsonObj.getObjectField(CURSOR_FIELD_NAME);
         BSONElement firstBatchElement = cursorField.getField(FIRST_BATCH_FIELD_NAME);
@@ -1675,16 +1675,24 @@ bool Command::run(OperationContext* txn,
         delete resultMutableDocument;
 
         BufBuilder &localBufBuilder = replyBuilder->getInPlaceReplyBuilder(bytesToReserve);;
+
+        char *buf = localBufBuilder.buf();
+        log() << "localBufBuilder " << (void *) buf;
+        
         BSONObjBuilder localBsonObjBuilder(localBufBuilder);
         resultDocument.toBson(&localBsonObjBuilder);
 
         localBsonObjBuilder.doneFast();
+
+
     } else {
         inPlaceReplyBob.doneFast();
     }
 
     BSONObjBuilder metadataBob;
     appendOpTimeMetadata(txn, request, &metadataBob);
+        log() << "metadataBob " << metadataBob.asTempObj().toString();
+
     replyBuilder->setMetadata(metadataBob.done());
 
     return result;
