@@ -98,6 +98,7 @@
 
 #include "mongo/db/pipeline/document.h"
 #include "mongo/db/migration/Migrator.h"
+#include "mongo/db/commands.h"
 
 namespace mongo {
 using logger::LogComponent;
@@ -267,6 +268,8 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
 
     const int32_t responseToMsgId = message.header().getId();
 
+    Migrator *migrator = Migrator::getInstance();
+
     rpc::CommandReplyBuilder replyBuilder{};
 
     auto curOp = CurOp::get(txn);
@@ -276,6 +279,9 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
     try {
         // database is validated here
         rpc::CommandRequest request{&message};
+
+        log() << "getCommandArgs: " << request.getCommandArgs().toString();
+        log() << "getMetadata:    " << request.getMetadata().toString();
 
         req = &request;
 
@@ -288,7 +294,31 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
             curOp->markCommand_inlock();
         }
 
-        runCommands(txn, request, &replyBuilder);
+        if (req->getCommandName() == "update" && migrator->isRegistryEnabled()) {
+            Command *findCmd1 = Command::findCommand("find");
+            BSONObj cmdObj = fromjson("{ find: \"test_collection\", filter: {} }");
+            std::string errmsg;
+            BSONObjBuilder inPlaceReplyBob;
+            bool findRun = findCmd1->run(txn, request.getDatabase().toString(), cmdObj, 0, errmsg, inPlaceReplyBob);
+
+            log() << "findRun " << findRun;
+            log() << inPlaceReplyBob.asTempObj().toString();
+
+
+
+            log() << "CommandReplyBuilder ---> ";
+            size_t bytesToReserve = 0u;
+            BufBuilder &localBufBuilder = replyBuilder.getInPlaceReplyBuilder(bytesToReserve);
+            BSONObjBuilder localBsonObjBuilder(localBufBuilder);
+//            resultDocument.toBson(&localBsonObjBuilder); TODO add data
+            localBsonObjBuilder.doneFast();
+
+            BSONObjBuilder metadataBob; // TODO check metadata in replication/sharding
+            replyBuilder.setMetadata(metadataBob.done());
+
+        } else {
+            runCommands(txn, request, &replyBuilder);
+        }
 
         curOp->debug().iscommand = true;
 
@@ -298,7 +328,6 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
 
     auto response = replyBuilder.done();
 
-    Migrator *migrator = Migrator::getInstance();
     if (req->getCommandName() == "find" && migrator->isRegistryEnabled()) {
         MsgData::View msg = response.buf();
         log() << "response " << (void *) msg.data();
@@ -333,7 +362,6 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
             BSONElement e = i.next();
             if (e.Obj().getField("x").numberDouble() != 1) {
                 resultsArrayBuilder.append(e);
-                log() << "x :: " << e.Obj().getField("x").numberDouble();
             }
         }
 
