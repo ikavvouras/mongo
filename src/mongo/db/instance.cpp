@@ -304,27 +304,36 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
         log() << "response " << (void *) msg.data();
         BSONObj resultBsonObj(msg.data());
 
-        Registry *registry = migrator->getRegistry();
-
         log() << "resultBsonObj2" << resultBsonObj.toString();
 
         BSONObj cursorField = resultBsonObj.getObjectField(CURSOR_FIELD_NAME);
         BSONElement firstBatchElement = cursorField.getField(FIRST_BATCH_FIELD_NAME);
 
+//        Registry *registry = migrator->getRegistry();
+
         BSONArrayBuilder resultsArrayBuilder;
         // try to remove objects
+//        BSONObjIterator i(firstBatchElement.Obj());
+//        // TODO filter
+//        while (i.more()) {
+//            BSONElement e = i.next();
+//
+//            string id = e.Obj().getField("_id").__oid().toString();
+//
+//            if (!setContainsId2(registry->getRemoved(), id)) {
+//                resultsArrayBuilder.append(e);
+//            } else if (registry->getUpdated().find(id) != registry->getUpdated().end()) {
+//                BSONElement *updatedElement = (BSONElement *) registry->getUpdated().find(id)->second;
+//                resultsArrayBuilder.append(*updatedElement);
+//            }
+//        }
+
         BSONObjIterator i(firstBatchElement.Obj());
-        // TODO filter
         while (i.more()) {
             BSONElement e = i.next();
-
-            string id = e.Obj().getField("_id").__oid().toString();
-
-            if (!setContainsId2(registry->getRemoved(), id)) {
+            if (e.Obj().getField("x").numberDouble() != 1) {
                 resultsArrayBuilder.append(e);
-            } else if (registry->getUpdated().find(id) != registry->getUpdated().end()) {
-                BSONElement *updatedElement = (BSONElement *) registry->getUpdated().find(id)->second;
-                resultsArrayBuilder.append(*updatedElement);
+                log() << "x :: " << e.Obj().getField("x").numberDouble();
             }
         }
 

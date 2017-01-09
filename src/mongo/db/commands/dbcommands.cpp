@@ -111,9 +111,6 @@
 #include "mongo/util/md5.hpp"
 #include "mongo/util/print.h"
 #include "mongo/util/scopeguard.h"
-#include "mongo/db/pipeline/document.h"
-
-#include "mongo/db/migration/Migrator.h"
 
 namespace mongo {
 
@@ -122,9 +119,6 @@ using std::ostringstream;
 using std::string;
 using std::stringstream;
 using std::unique_ptr;
-
-static const StringData CURSOR_FIELD_NAME = "cursor";
-static const StringData FIRST_BATCH_FIELD_NAME = "firstBatch";
 
 class CmdShutdownMongoD : public CmdShutdown {
 public:
@@ -1479,19 +1473,6 @@ void Command::execCommand(OperationContext* txn,
     }
 }
 
-void copyBufBuilder(BufBuilder *target, BufBuilder *source) {
-    target->appendBuf(source->buf(), (size_t) source->len());
-}
-
-MutableDocument* createMutableDocument(BSONObj &bsonObj) {
-    Document document(bsonObj);
-    return new MutableDocument(document);
-}
-
-bool setContainsId(const std::set<string> &s, const string &id) {
-    return s.find(id) != s.end();
-}
-
 // This really belongs in commands.cpp, but we need to move it here so we can
 // use shardingState and the repl coordinator without changing our entire library
 // structure.
@@ -1515,16 +1496,7 @@ bool Command::run(OperationContext* txn,
     // run expects const db std::string (can't bind to temporary)
     const std::string db = request.getDatabase().toString();
 
-    Migrator *migrator = Migrator::getInstance();
-
-    BufBuilder* builder; // TODO free
-    if (request.getCommandName() == "find" && migrator->isRegistryEnabled()) {
-        builder = new BufBuilder();
-    } else {
-        builder = &(replyBuilder->getInPlaceReplyBuilder(bytesToReserve));
-    }
-    BSONObjBuilder inPlaceReplyBob(*builder);
-
+    BSONObjBuilder inPlaceReplyBob(replyBuilder->getInPlaceReplyBuilder(bytesToReserve));
     auto readConcernArgsStatus = extractReadConcern(txn, cmd, supportsReadConcern());
 
     if (!readConcernArgsStatus.isOK()) {
@@ -1568,27 +1540,8 @@ bool Command::run(OperationContext* txn,
         ON_BLOCK_EXIT([&] { txn->setWriteConcern(oldWC); });
         txn->setWriteConcern(wcResult.getValue());
 
-        // TODO catch update cmd -- also check mongo::CmdUpdate
-
         log() << "cmd :: " << cmd.toString();
-
-        if (request.getCommandName() == "update" && migrator->isRegistryEnabled()) {
-            for (BSONElement updatesElement : cmd.getField("updates").Array()) {
-                BSONElement query = updatesElement.Obj().getField("q");
-                BSONElement updates = updatesElement.Obj().getField("u");
-            }
-
-            BSONObj obj = fromjson("{ find: \"test_collection\", filter: {} }");
-            run(txn, db, obj, 0, errmsg, inPlaceReplyBob);
-
-            log() << "--> " << inPlaceReplyBob.asTempObj().toString();
-
-        } else {
-            result = run(txn, db, cmd, 0, errmsg, inPlaceReplyBob);
-        }
-
-        log() << "update: " << inPlaceReplyBob.asTempObj().toString();
-
+        result = run(txn, db, cmd, 0, errmsg, inPlaceReplyBob);
 
         // Nothing in run() should change the writeConcern.
         dassert(SimpleBSONObjComparator::kInstance.evaluate(txn->getWriteConcern().toBSON() ==
@@ -1630,68 +1583,12 @@ bool Command::run(OperationContext* txn,
     }
 
     appendCommandStatus(inPlaceReplyBob, result, errmsg);
-
-    if (request.getCommandName() == "find" && migrator->isRegistryEnabled()) {
-
-        Registry *registry = migrator->getRegistry();
-
-        BSONObj resultBsonObj = inPlaceReplyBob.done();
-
-        log() << "resultBsonObj" << resultBsonObj.toString();
-
-        BSONObj cursorField = resultBsonObj.getObjectField(CURSOR_FIELD_NAME);
-        BSONElement firstBatchElement = cursorField.getField(FIRST_BATCH_FIELD_NAME);
-
-        BSONArrayBuilder resultsArrayBuilder;
-        // try to remove objects
-        BSONObjIterator i(firstBatchElement.Obj());
-        // TODO filter
-        while (i.more()) {
-            BSONElement e = i.next();
-
-            string id = e.Obj().getField("_id").__oid().toString();
-
-            if (!setContainsId(registry->getRemoved(), id)) {
-                resultsArrayBuilder.append(e);
-            } else if (registry->getUpdated().find(id) != registry->getUpdated().end()) {
-                BSONElement *updatedElement = (BSONElement *) registry->getUpdated().find(id)->second;
-                resultsArrayBuilder.append(*updatedElement);
-            }
-        }
-
-        // TODO add registry.inserted
-
-        const BSONArray &resultsArray = resultsArrayBuilder.arr();
-
-        MutableDocument *cursorFieldMutableDocument = createMutableDocument(cursorField);
-        cursorFieldMutableDocument->setField(FIRST_BATCH_FIELD_NAME, Value(resultsArray));
-        Document cursorFieldDocument = cursorFieldMutableDocument->freeze();
-        delete cursorFieldMutableDocument;
-        log() << "cursorFieldMutableDocument: " << cursorFieldDocument.toString();
-
-        MutableDocument *resultMutableDocument = createMutableDocument(resultBsonObj);
-        resultMutableDocument->setField(CURSOR_FIELD_NAME, Value(cursorFieldDocument));
-        Document resultDocument = resultMutableDocument->freeze();
-        delete resultMutableDocument;
-
-        BufBuilder &localBufBuilder = replyBuilder->getInPlaceReplyBuilder(bytesToReserve);;
-
-        char *buf = localBufBuilder.buf();
-        log() << "localBufBuilder " << (void *) buf;
-        
-        BSONObjBuilder localBsonObjBuilder(localBufBuilder);
-        resultDocument.toBson(&localBsonObjBuilder);
-
-        localBsonObjBuilder.doneFast();
-
-
-    } else {
-        inPlaceReplyBob.doneFast();
-    }
+    inPlaceReplyBob.doneFast();
 
     BSONObjBuilder metadataBob;
     appendOpTimeMetadata(txn, request, &metadataBob);
-        log() << "metadataBob " << metadataBob.asTempObj().toString();
+
+    log() << "metadataBob " << metadataBob.asTempObj().toString();
 
     replyBuilder->setMetadata(metadataBob.done());
 
