@@ -295,15 +295,40 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
         }
 
         if (req->getCommandName() == "update" && migrator->isRegistryEnabled()) {
-            Command *findCmd1 = Command::findCommand("find");
-            BSONObj cmdObj = fromjson("{ find: \"test_collection\", filter: {} }");
-            std::string errmsg;
-            BSONObjBuilder inPlaceReplyBob;
-            bool findRun = findCmd1->run(txn, request.getDatabase().toString(), cmdObj, 0, errmsg, inPlaceReplyBob);
+            Registry *registry = migrator->getRegistry();
 
-            log() << "findRun " << findRun;
-            log() << inPlaceReplyBob.asTempObj().toString();
+            const StringData &collection = request.getCommandArgs().getField("update").valueStringData();
 
+            for (BSONElement updatesElement : request.getCommandArgs().getField("updates").Array()) {
+                const BSONObj &filterElement = updatesElement.Obj().getObjectField("q");
+                const BSONObj &update = updatesElement.Obj().getObjectField("u");
+
+                // TODO extract method
+                BSONObjBuilder findCommandBuilder;
+                findCommandBuilder.append("find", collection);
+                findCommandBuilder.append("filter", filterElement);
+                BSONObj cmdObj = findCommandBuilder.done();
+                
+                Command *findCmd1 = Command::findCommand("find");
+                std::string errmsg;
+                BSONObjBuilder inPlaceReplyBob;
+                bool findRun = findCmd1->run(txn, request.getDatabase().toString(), cmdObj, 0, errmsg, inPlaceReplyBob);
+                log() << "findRun " << findRun;
+                log() << inPlaceReplyBob.asTempObj().toString();
+
+                const BSONObj &candidateRecords = inPlaceReplyBob.done();
+                for (BSONElement updatingRecord : candidateRecords.getObjectField("cursor").getField("firstBatch").Array()) {
+                    const string &id = updatingRecord.__oid().toString();
+                    log() << "updating( " << id << " ) :: " << updatingRecord.toString(false);
+
+                    registry->update(id, (void *) &update);
+                }
+
+                // assersion
+                log() << "registry->getUpdated().size() " << registry->getUpdated().size();
+                BSONObj *t2 = (BSONObj *) registry->getUpdated().begin()->second;
+                log() << t2->toString();
+            }
 
 
             log() << "CommandReplyBuilder ---> ";
@@ -352,7 +377,8 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
 //            if (!setContainsId2(registry->getRemoved(), id)) {
 //                resultsArrayBuilder.append(e);
 //            } else if (registry->getUpdated().find(id) != registry->getUpdated().end()) {
-//                BSONElement *updatedElement = (BSONElement *) registry->getUpdated().find(id)->second;
+//                BSONObj *updatedElement = (BSONElement *) registry->getUpdated().find(id)->second;
+        // TODO perform the update over the actual element
 //                resultsArrayBuilder.append(*updatedElement);
 //            }
 //        }

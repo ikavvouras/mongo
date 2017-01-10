@@ -20,17 +20,18 @@ namespace mongo {
     }
 
     void *Registry::update(string id, void *object) {
-        // TODO
-        return NULL;
+        // TODO generate a copy of object
+        updated.insert(std::make_pair(id, object));
+
+        return object;
     }
 
     void *Registry::write(string id, void *object) {
-        // TODO
-        return NULL;
+        throw std::runtime_error("Unimplemented operation exception in registry");
     }
 
     void Registry::remove(string id) {
-        // TODO
+        throw std::runtime_error("Unimplemented operation exception in registry");
     }
 
     bool Registry::hasUpdated(const string &id) const { return updated.find(id) != updated.end(); }
