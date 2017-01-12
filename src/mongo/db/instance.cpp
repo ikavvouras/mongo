@@ -111,13 +111,14 @@ using std::stringstream;
 using std::unique_ptr;
 using std::vector;
 
+    string dbExecCommand;
+
+MONGO_FP_DECLARE(rsStopGetMore);
+
+namespace {
+
     static const StringData CURSOR_FIELD_NAME = "cursor";
     static const StringData FIRST_BATCH_FIELD_NAME = "firstBatch";
-
-    Document enrichFindResults(const BSONObj &resultBsonObj, Registry *registry);
-    BSONObj createFindCommand(const StringData &collection, const BSONObj &filterElement);
-    const BSONObj &find(OperationContext *txn, const string &dbName, const StringData &collection, const BSONObj &filterElement, Registry *registry);
-
 
     MutableDocument* createMutableDocument(const BSONObj &bsonObj) {
         Document document(bsonObj);
@@ -128,14 +129,11 @@ using std::vector;
         return s.find(id) != s.end();
     }
 
+    Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Registry *registry);
+    const BSONObj &find(OperationContext *txn, const string &dbName, const StringData &collection, const BSONObj &filterElement, const Registry *registry);
+    string getId(const BSONElement &actualElement);
 
-    string dbExecCommand;
-
-MONGO_FP_DECLARE(rsStopGetMore);
-
-namespace {
-
-// for diaglog
+    // for diaglog
 inline void opread(Message& m) {
     if (_diaglog.getLevel() & 2) {
         _diaglog.readop(m.singleData().view2ptr(), m.header().getLen());
@@ -313,17 +311,17 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
 
                 const BSONObj &findResults = find(txn, dbName, collection, filterElement, migrator->getRegistry());
 
+                log() << "find called";
+
                 for (BSONElement updatingRecord : findResults.getObjectField("cursor").getField("firstBatch").Array()) {
-                    const string &id = updatingRecord.__oid().toString();
+                    const string &id = getId(updatingRecord);
                     log() << "updating( " << id << " ) :: " << updatingRecord.toString(false);
 
-                    registry->update(id, (void *) &update);
+                    registry->update(id, new BSONObj(update.copy()));
                 }
 
-                // assersion
+                // TODO remove assertions
                 log() << "registry->getUpdated().size() " << registry->getUpdated().size();
-                BSONObj *t2 = (BSONObj *) registry->getUpdated().begin()->second;
-                log() << t2->toString();
             }
 
 
@@ -353,7 +351,7 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
         MsgData::View msg = response.buf();
         BSONObj resultBsonObj(msg.data());
 
-        Document resultDocument = enrichFindResults(resultBsonObj, migrator->getRegistry());
+        Document resultDocument = enrichFindResultsFromRegistry(resultBsonObj, migrator->getRegistry());
 
         log() << "CommandReplyBuilder ---> ";
         rpc::CommandReplyBuilder localReplyBuilder{};
@@ -372,9 +370,8 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
 
         // assert -- TODO remove the following lines
         MsgData::View msg2 = response.buf();
-        log() << "response2 " << (void *) msg2.data();
         BSONObj resultBsonObj2(msg2.data());
-        log() << "resultBsonObj22" << resultBsonObj2.toString();
+        log() << "resultBsonObj22 " << resultBsonObj2.toString();
     }
 
     curOp->debug().responseLength = response.header().dataLen();
@@ -383,35 +380,50 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
     dbResponse.responseToMsgId = responseToMsgId;
 }
 
-Document enrichFindResults(const BSONObj &resultBsonObj, Registry *registry) {
-    log() << "resultBsonObj2" << resultBsonObj.toString();
+Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Registry *registry) {
+    log() << "resultBsonObj2 " << resultBsonObj.toString();
 
     BSONObj cursorField = resultBsonObj.getObjectField(CURSOR_FIELD_NAME);
     BSONElement firstBatchElement = cursorField.getField(FIRST_BATCH_FIELD_NAME);
 
     BSONArrayBuilder resultsArrayBuilder;
     // try to remove objects
-    //        BSONObjIterator i(firstBatchElement.Obj());
-    //        // TODO filter
-    //        while (i.more()) {
-    //            BSONElement e = i.next();
-    //
-    //            string id = e.Obj().getField("_id").__oid().toString();
-    //
-    //            if (!setContainsId2(registry->getRemoved(), id)) {
-    //                resultsArrayBuilder.append(e);
-    //            } else if (registry->getUpdated().find(id) != registry->getUpdated().end()) {
-    //                BSONObj *updatedElement = (BSONElement *) registry->getUpdated().find(id)->second;
-    // TODO perform the update over the actual element
-    //                resultsArrayBuilder.append(*updatedElement);
-    //            }
-    //        }
-
     BSONObjIterator i(firstBatchElement.Obj());
+    // TODO filter
     while (i.more()) {
-        BSONElement e = i.next();
-        if (e.Obj().getField("x").numberDouble() != 1) {
-            resultsArrayBuilder.append(e);
+        BSONElement actualElement = i.next();
+
+        string id = getId(actualElement);
+
+        if (registry->getUpdated().find(id) != registry->getUpdated().end()) {
+            log() << "found updated: " << id;
+            BSONObj *update = registry->getUpdated().find(id)->second;
+
+            // TODO perform the update over the actual element
+
+            if (update->hasElement("$set")) {
+                MutableDocument *expectedDocument = createMutableDocument(actualElement.Obj());
+                for (BSONElement field : update->getObjectField("$set")) {
+
+
+                    const Value &val = Value(field);
+                    log() << "updating " << field.toString();
+
+                    expectedDocument->setField(field.fieldNameStringData(), val);
+                }
+
+                const Document &document = expectedDocument->freeze();
+                delete expectedDocument;
+
+                resultsArrayBuilder.append(document.toBson());
+            } else {
+                log() << "replacing with " << update->toString();
+                log() << "size " << update->objsize();
+                resultsArrayBuilder.append(*update);
+            }
+
+        } else if (!setContainsId2(registry->getRemoved(), id)) {
+            resultsArrayBuilder.append(actualElement);
         }
     }
 
@@ -433,31 +445,30 @@ Document enrichFindResults(const BSONObj &resultBsonObj, Registry *registry) {
     return resultDocument;
 }
 
-const BSONObj &find(OperationContext *txn, const string &dbName, const StringData &collection, const BSONObj &filterElement, Registry *registry) {
-    BSONObj cmdObj = createFindCommand(collection, filterElement);
+    string getId(const BSONElement &actualElement) { return actualElement.Obj().getField("_id").__oid().toString(); }
 
-    Command *findCmd1 = Command::findCommand("find");
-    string errmsg;
-    BSONObjBuilder inPlaceReplyBob;
-    bool findRun = findCmd1->run(txn, dbName, cmdObj, 0, errmsg, inPlaceReplyBob);
-    log() << "findRun " << findRun;
-    log() << inPlaceReplyBob.asTempObj().toString();
+    const BSONObj &find(OperationContext *txn, const string &dbName, const StringData &collection, const BSONObj &filterElement,
+                        const Registry *registry) {
 
-    const BSONObj &candidateRecords = inPlaceReplyBob.done();
-    const Document &enrichedFindResults = enrichFindResults(candidateRecords, registry);
-    const BSONObj &findResults = enrichedFindResults.toBson();
-    return findResults;
-}
-
-BSONObj createFindCommand(const StringData &collection, const BSONObj &filterElement) {
     BSONObjBuilder findCommandBuilder;
     findCommandBuilder.append("find", collection);
     findCommandBuilder.append("filter", filterElement);
     BSONObj cmdObj = findCommandBuilder.done();
-    return cmdObj;
+
+    string errmsg;
+    BSONObjBuilder inPlaceReplyBob;
+    Command *findCmd = Command::findCommand("find");
+    bool findRun = findCmd->run(txn, dbName, cmdObj, 0, errmsg, inPlaceReplyBob);
+    log() << "findRun " << findRun;
+    log() << inPlaceReplyBob.asTempObj().toString();
+
+    const BSONObj &candidateRecords = inPlaceReplyBob.done();
+    const Document &enrichedFindResults = enrichFindResultsFromRegistry(candidateRecords, registry);
+    const BSONObj &findResults = enrichedFindResults.toBson();
+    return findResults;
 }
 
-// In SERVER-7775 we reimplemented the pseudo-commands fsyncUnlock, inProg, and killOp
+    // In SERVER-7775 we reimplemented the pseudo-commands fsyncUnlock, inProg, and killOp
 // as ordinary commands. To support old clients for another release, this helper serves
 // to execute the real command from the legacy pseudo-command codepath.
 // TODO: remove after MongoDB 3.2 is released

@@ -6,28 +6,30 @@
 #include <set>
 #include <string>
 
+#include "mongo/bson/bsonobj.h"
+
 namespace mongo {
 
     using std::string;
 
     class Registry {
-        std::map<string, void *> inserted;
-        std::map<string, void *> updated;
+        std::map<string, BSONObj *> inserted;
+        std::map<string, BSONObj *> updated;
         std::set<string> removed;
     public:
-        void *read(string id);
+        BSONObj *read(string id);
 
-        void *write(string id, void *object);
+        BSONObj *write(string id, BSONObj *object);
 
-        void *update(string id, void *object);
+        BSONObj *update(string id, BSONObj *object);
 
         void remove(string id);
 
         bool hasUpdated(const string &id) const;
 
-        const std::map<string, void *> &getInserted() const;
+        const std::map<string, BSONObj *> &getInserted() const;
 
-        const std::map<string, void *> &getUpdated() const;
+        const std::map<string, BSONObj *> &getUpdated() const;
 
         const std::set<string> &getRemoved() const;
     };
