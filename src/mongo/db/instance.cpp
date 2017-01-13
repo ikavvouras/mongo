@@ -417,9 +417,14 @@ Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Regis
 
                 resultsArrayBuilder.append(document.toBson());
             } else {
-                log() << "replacing with " << update->toString();
-                log() << "size " << update->objsize();
-                resultsArrayBuilder.append(*update);
+                MutableDocument *mutableUpdate = createMutableDocument(*update);
+                mutableUpdate->addField("_id", Value(actualElement.Obj().getField("_id")));
+                const Document &document = mutableUpdate->freeze();
+                delete mutableUpdate;
+
+                log() << "replacing with " << document.toString();
+
+                resultsArrayBuilder.append(document.toBson());
             }
 
         } else if (!setContainsId2(registry->getRemoved(), id)) {
