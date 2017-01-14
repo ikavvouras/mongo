@@ -2,10 +2,15 @@
 // Created by yannis on 3/12/2016.
 //
 
+#define MONGO_LOG_DEFAULT_COMPONENT ::mongo::logger::LogComponent::kCommand
+
+#include "mongo/util/log.h"
 #include "mongo/db/migration/Registry.h"
+
 namespace mongo {
 
     using std::string;
+    using std::vector;
 
     BSONObj *getOrNull(std::map<string, BSONObj *> map, string id) {
         return map.find(id) != map.end() ?
@@ -13,7 +18,7 @@ namespace mongo {
                NULL;
     }
 
-    BSONObj *Registry::read(string id) {
+    std::vector<BSONObj *> Registry::read(const BSONObj &query) {
 //        return hasUpdated(id) ?
 //               updated.find(id)->second :
 //               getOrNull(inserted, id);
@@ -47,6 +52,10 @@ namespace mongo {
         return updated.find(id) != updated.end();
     }
 
+    bool Registry::hasRemoved(const string &id) const {
+        return removed.find(id) != removed.end();
+    }
+
     const std::map<string, BSONObj *> &Registry::getInserted() const {
         return inserted;
     }
@@ -59,4 +68,47 @@ namespace mongo {
         return removed;
     }
 
+    BSONObj Registry::applyUpdates(const BSONElement &actualElement) const {
+        string id = getId(actualElement);
+
+        BSONObj finalObj = actualElement.Obj();
+
+        vector<BSONObj *> sequenceOfUpdates = this->getUpdated().find(id)->second;
+        for (BSONObj *update : sequenceOfUpdates) {
+            if (update->hasElement("$set")) {
+                MutableDocument *mutableUpdate = createMutableDocument(finalObj);
+                for (BSONElement field : update->getObjectField("$set")) {
+
+                    const Value &val = Value(field);
+                    log() << "updating " << field.toString();
+
+                    mutableUpdate->setField(field.fieldNameStringData(), val);
+                }
+
+                const Document &document = mutableUpdate->freeze();
+                delete mutableUpdate;
+
+                finalObj = document.toBson();
+
+            } else {
+                MutableDocument *mutableUpdate = createMutableDocument(*update);
+                mutableUpdate->addField("_id", Value(finalObj.getField("_id")));
+                const Document &document = mutableUpdate->freeze();
+                delete mutableUpdate;
+                finalObj = document.toBson();
+
+                log() << "replacing with " << document.toString();
+            }
+        }
+        return finalObj;
+    }
+
+    string getId(const BSONElement &actualElement) {
+        return actualElement.Obj().getField("_id").__oid().toString();
+    }
+
+    MutableDocument* createMutableDocument(const BSONObj &bsonObj) {
+        Document document(bsonObj);
+        return new MutableDocument(document);
+    }
 }

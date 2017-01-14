@@ -120,23 +120,10 @@ namespace {
     static const StringData CURSOR_FIELD_NAME = "cursor";
     static const StringData FIRST_BATCH_FIELD_NAME = "firstBatch";
 
-    MutableDocument* createMutableDocument(const BSONObj &bsonObj) {
-        Document document(bsonObj);
-        return new MutableDocument(document);
-    }
-
-    bool setContainsId2(const std::set<string> &s, const string &id) {
-        return s.find(id) != s.end();
-    }
-
     Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Registry *registry);
 
     const BSONObj find(OperationContext *txn, const string &dbName, const StringData &collection,
                         const BSONObj &filterElement,const Registry *registry);
-
-    string getId(const BSONElement &actualElement);
-
-    BSONObj applyUpdates(const Registry *registry, const BSONElement &actualElement);
 
     const StringData getCollectionFromRequest(const rpc::CommandRequest &request, const char *name);
 
@@ -352,8 +339,8 @@ void runRemoveCommandInRegistry(OperationContext *txn, rpc::CommandReplyBuilder 
 
     // TODO take into account `limit` and `ordered` { delete: "test_collection", deletes: [ { q: { x: 2.0 }, limit: 0.0 } ], ordered: true }
 
-    for (BSONElement updatesElement : request.getCommandArgs().getField("deletes").Array()) {
-        const BSONObj &filterElement = updatesElement.Obj().getObjectField("q");
+    for (BSONElement deletedElement : request.getCommandArgs().getField("deletes").Array()) {
+        const BSONObj &filterElement = deletedElement.Obj().getObjectField("q");
 
         const string &dbName = request.getDatabase().toString();
 
@@ -455,21 +442,18 @@ Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Regis
     BSONElement firstBatchElement = cursorField.getField(FIRST_BATCH_FIELD_NAME);
 
     BSONArrayBuilder resultsArrayBuilder;
-    // try to remove objects
-    BSONObjIterator i(firstBatchElement.Obj());
-    // TODO filter
-    while (i.more()) {
-        BSONElement actualElement = i.next();
+
+    for (BSONElement actualElement : firstBatchElement.Obj()) {
 
         string id = getId(actualElement);
 
-        if (registry->getUpdated().find(id) != registry->getUpdated().end()) {
+        if (registry->hasUpdated(id)) {
             log() << "found updated: " << id;
 
-            BSONObj updatedObj = applyUpdates(registry, actualElement);
+            BSONObj updatedObj = registry->applyUpdates(actualElement);
             resultsArrayBuilder.append(updatedObj);
 
-        } else if (!setContainsId2(registry->getRemoved(), id)) {
+        } else if (!registry->hasRemoved(id)) {
             resultsArrayBuilder.append(actualElement);
         }
     }
@@ -490,45 +474,6 @@ Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Regis
     delete resultMutableDocument;
 
     return resultDocument;
-}
-
-BSONObj applyUpdates(const Registry *registry, const BSONElement &actualElement) {
-    string id = getId(actualElement);
-
-    BSONObj finalObj = actualElement.Obj();
-
-    vector<BSONObj *> sequenceOfUpdates = registry->getUpdated().find(id)->second;
-    for (BSONObj *update : sequenceOfUpdates) {
-        if (update->hasElement("$set")) {
-            MutableDocument *mutableUpdate = createMutableDocument(finalObj);
-            for (BSONElement field : update->getObjectField("$set")) {
-
-                const Value &val = Value(field);
-                log() << "updating " << field.toString();
-
-                mutableUpdate->setField(field.fieldNameStringData(), val);
-            }
-
-            const Document &document = mutableUpdate->freeze();
-            delete mutableUpdate;
-
-            finalObj = document.toBson();
-
-        } else {
-            MutableDocument *mutableUpdate = createMutableDocument(*update);
-            mutableUpdate->addField("_id", Value(finalObj.getField("_id")));
-            const Document &document = mutableUpdate->freeze();
-            delete mutableUpdate;
-            finalObj = document.toBson();
-
-            log() << "replacing with " << document.toString();
-        }
-    }
-    return finalObj;
-}
-
-string getId(const BSONElement &actualElement) {
-    return actualElement.Obj().getField("_id").__oid().toString();
 }
 
 const BSONObj find(OperationContext *txn, const string &dbName, const StringData &collection, const BSONObj &filterElement,
