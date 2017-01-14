@@ -130,8 +130,24 @@ namespace {
     }
 
     Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Registry *registry);
-    const BSONObj &find(OperationContext *txn, const string &dbName, const StringData &collection, const BSONObj &filterElement, const Registry *registry);
+
+    const BSONObj find(OperationContext *txn, const string &dbName, const StringData &collection,
+                        const BSONObj &filterElement,const Registry *registry);
+
     string getId(const BSONElement &actualElement);
+
+    BSONObj applyUpdates(const Registry *registry, const BSONElement &actualElement);
+
+    const StringData getCollectionFromRequest(const rpc::CommandRequest &request, const char *name);
+
+    void runUpdateIntoRegisty(OperationContext *txn, rpc::CommandReplyBuilder &replyBuilder,
+                              const rpc::CommandRequest &request, Registry *registry);
+
+    mongo::Message &runFindCommandInRegisty(mongo::Message &response, const mongo::Registry *registry);
+
+    void runRemoveCommandInRegistry(OperationContext *txn, rpc::CommandReplyBuilder &replyBuilder,
+                                    const rpc::CommandRequest &request, Registry *registry);
+
 
     // for diaglog
 inline void opread(Message& m) {
@@ -283,6 +299,7 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
         // database is validated here
         rpc::CommandRequest request{&message};
 
+        log() << "req->getCommandName() " << request.getCommandName();
         log() << "getCommandArgs: " << request.getCommandArgs().toString();
         log() << "getMetadata:    " << request.getMetadata().toString();
 
@@ -298,43 +315,9 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
         }
 
         if (req->getCommandName() == "update" && migrator->isRegistryEnabled()) {
-            Registry *registry = migrator->getRegistry();
-
-            const StringData &collection = request.getCommandArgs().getField("update").valueStringData();
-
-            for (BSONElement updatesElement : request.getCommandArgs().getField("updates").Array()) {
-                const BSONObj &filterElement = updatesElement.Obj().getObjectField("q");
-                const BSONObj &update = updatesElement.Obj().getObjectField("u");
-
-                // TODO extract method
-                const string &dbName = request.getDatabase().toString();
-
-                const BSONObj &findResults = find(txn, dbName, collection, filterElement, migrator->getRegistry());
-
-                log() << "find called";
-
-                for (BSONElement updatingRecord : findResults.getObjectField("cursor").getField("firstBatch").Array()) {
-                    const string &id = getId(updatingRecord);
-                    log() << "updating( " << id << " ) :: " << updatingRecord.toString(false);
-
-                    registry->update(id, new BSONObj(update.copy()));
-                }
-
-                // TODO remove assertions
-                log() << "registry->getUpdated().size() " << registry->getUpdated().size();
-            }
-
-
-            log() << "CommandReplyBuilder ---> ";
-            size_t bytesToReserve = 0u;
-            BufBuilder &localBufBuilder = replyBuilder.getInPlaceReplyBuilder(bytesToReserve);
-            BSONObjBuilder localBsonObjBuilder(localBufBuilder);
-//            resultDocument.toBson(&localBsonObjBuilder); TODO add data
-            localBsonObjBuilder.doneFast();
-
-            BSONObjBuilder metadataBob; // TODO check metadata in replication/sharding
-            replyBuilder.setMetadata(metadataBob.done());
-
+            runUpdateIntoRegisty(txn, replyBuilder, request, migrator->getRegistry());
+        } else if (req->getCommandName() == "delete" && migrator->isRegistryEnabled()) {
+            runRemoveCommandInRegistry(txn, replyBuilder, request, migrator->getRegistry());
         } else {
             runCommands(txn, request, &replyBuilder);
         }
@@ -348,25 +331,8 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
     auto response = replyBuilder.done();
 
     if (req->getCommandName() == "find" && migrator->isRegistryEnabled()) {
-        MsgData::View msg = response.buf();
-        BSONObj resultBsonObj(msg.data());
 
-        Document resultDocument = enrichFindResultsFromRegistry(resultBsonObj, migrator->getRegistry());
-
-        log() << "CommandReplyBuilder ---> ";
-        rpc::CommandReplyBuilder localReplyBuilder{};
-        size_t bytesToReserve = 0u;
-        BufBuilder &localBufBuilder = localReplyBuilder.getInPlaceReplyBuilder(bytesToReserve);
-        BSONObjBuilder localBsonObjBuilder(localBufBuilder);
-        resultDocument.toBson(&localBsonObjBuilder);
-        localBsonObjBuilder.doneFast();
-
-        log() << "CommandReplyBuilder ---> localReplyBuilder.done()";
-
-        BSONObjBuilder metadataBob; // TODO check metadata in replication/sharding
-        localReplyBuilder.setMetadata(metadataBob.done());
-
-        response = localReplyBuilder.done();
+        runFindCommandInRegisty(response, migrator->getRegistry());
 
         // assert -- TODO remove the following lines
         MsgData::View msg2 = response.buf();
@@ -378,6 +344,108 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
 
     dbResponse.response = std::move(response);
     dbResponse.responseToMsgId = responseToMsgId;
+}
+
+void runRemoveCommandInRegistry(OperationContext *txn, rpc::CommandReplyBuilder &replyBuilder,
+                                    const rpc::CommandRequest &request, Registry *registry) {
+        const StringData &collection = getCollectionFromRequest(request, "delete");
+
+    // TODO take into account `limit` and `ordered` { delete: "test_collection", deletes: [ { q: { x: 2.0 }, limit: 0.0 } ], ordered: true }
+
+    for (BSONElement updatesElement : request.getCommandArgs().getField("deletes").Array()) {
+        const BSONObj &filterElement = updatesElement.Obj().getObjectField("q");
+
+        const string &dbName = request.getDatabase().toString();
+
+        const BSONObj &findResults = find(txn, dbName, collection, filterElement, registry);
+
+        log() << "find called";
+
+        for (BSONElement removingRecord : findResults.getObjectField("cursor").getField("firstBatch").Array()) {
+            const string &id = getId(removingRecord);
+            log() << "removing( " << id << " ) :: " << removingRecord.toString(false);
+
+            registry->remove(id);
+        }
+
+        // TODO remove assertions
+        log() << "registry->getRemoved().size() " << registry->getRemoved().size();
+    }
+
+
+    log() << "CommandReplyBuilder ---> ";
+    size_t bytesToReserve = 0u;
+    BufBuilder &localBufBuilder = replyBuilder.getInPlaceReplyBuilder(bytesToReserve);
+    BSONObjBuilder localBsonObjBuilder(localBufBuilder);
+//            resultDocument.toBson(&localBsonObjBuilder); TODO add data
+    localBsonObjBuilder.doneFast();
+
+    BSONObjBuilder metadataBob; // TODO check metadata in replication/sharding
+    replyBuilder.setMetadata(metadataBob.done());
+}
+
+void runUpdateIntoRegisty(OperationContext *txn, rpc::CommandReplyBuilder &replyBuilder,
+                          const rpc::CommandRequest &request, Registry *registry) {
+    const StringData &collection = getCollectionFromRequest(request, "update");
+
+    for (BSONElement updatesElement : request.getCommandArgs().getField("updates").Array()) {
+        const BSONObj &filterElement = updatesElement.Obj().getObjectField("q");
+        const BSONObj &update = updatesElement.Obj().getObjectField("u");
+
+        const string &dbName = request.getDatabase().toString();
+
+        const BSONObj &findResults = find(txn, dbName, collection, filterElement, registry);
+
+        log() << "find called";
+
+        for (BSONElement updatingRecord : findResults.getObjectField("cursor").getField("firstBatch").Array()) {
+            const string &id = getId(updatingRecord);
+            log() << "updating( " << id << " ) :: " << updatingRecord.toString(false);
+
+            registry->update(id, new BSONObj(update.copy()));
+        }
+
+// TODO remove assertions
+        log() << "registry->getUpdated().size() " << registry->getUpdated().size();
+    }
+
+
+    log() << "CommandReplyBuilder ---> ";
+    size_t bytesToReserve = 0u;
+    BufBuilder &localBufBuilder = replyBuilder.getInPlaceReplyBuilder(bytesToReserve);
+    BSONObjBuilder localBsonObjBuilder(localBufBuilder);
+//            resultDocument.toBson(&localBsonObjBuilder); TODO add data
+    localBsonObjBuilder.doneFast();
+
+    BSONObjBuilder metadataBob; // TODO check metadata in replication/sharding
+    replyBuilder.setMetadata(metadataBob.done());
+}
+
+mongo::Message &runFindCommandInRegisty(mongo::Message &response, const mongo::Registry *registry) {
+    MsgData::View msg = response.buf();
+    BSONObj resultBsonObj(msg.data());
+
+    Document resultDocument = enrichFindResultsFromRegistry(resultBsonObj, registry);
+
+    log() << "CommandReplyBuilder ---> ";
+    rpc::CommandReplyBuilder localReplyBuilder{};
+    size_t bytesToReserve = 0u;
+    BufBuilder &localBufBuilder = localReplyBuilder.getInPlaceReplyBuilder(bytesToReserve);
+    BSONObjBuilder localBsonObjBuilder(localBufBuilder);
+    resultDocument.toBson(&localBsonObjBuilder);
+    localBsonObjBuilder.doneFast();
+
+    log() << "CommandReplyBuilder ---> localReplyBuilder.done()";
+
+    BSONObjBuilder metadataBob; // TODO check metadata in replication/sharding
+    localReplyBuilder.setMetadata(metadataBob.done());
+
+    response = localReplyBuilder.done();
+    return response;
+}
+
+const StringData getCollectionFromRequest(const rpc::CommandRequest &request, const char *name) {
+    return request.getCommandArgs().getField(name).valueStringData();
 }
 
 Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Registry *registry) {
@@ -398,36 +466,8 @@ Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Regis
         if (registry->getUpdated().find(id) != registry->getUpdated().end()) {
             log() << "found updated: " << id;
 
-            BSONObj finalObj = actualElement.Obj();
-
-            std::vector<BSONObj *> sequenceOfUpdates = registry->getUpdated().find(id)->second;
-            for (BSONObj *update : sequenceOfUpdates) {
-                if (update->hasElement("$set")) {
-                    MutableDocument *mutableUpdate = createMutableDocument(finalObj);
-                    for (BSONElement field : update->getObjectField("$set")) {
-
-                        const Value &val = Value(field);
-                        log() << "updating " << field.toString();
-
-                        mutableUpdate->setField(field.fieldNameStringData(), val);
-                    }
-
-                    const Document &document = mutableUpdate->freeze();
-                    delete mutableUpdate;
-
-                    finalObj = document.toBson();
-
-                } else {
-                    MutableDocument *mutableUpdate = createMutableDocument(*update);
-                    mutableUpdate->addField("_id", Value(finalObj.getField("_id")));
-                    const Document &document = mutableUpdate->freeze();
-                    delete mutableUpdate;
-                    finalObj = document.toBson();
-
-                    log() << "replacing with " << document.toString();
-                }
-            }
-            resultsArrayBuilder.append(finalObj);
+            BSONObj updatedObj = applyUpdates(registry, actualElement);
+            resultsArrayBuilder.append(updatedObj);
 
         } else if (!setContainsId2(registry->getRemoved(), id)) {
             resultsArrayBuilder.append(actualElement);
@@ -452,9 +492,46 @@ Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Regis
     return resultDocument;
 }
 
-    string getId(const BSONElement &actualElement) { return actualElement.Obj().getField("_id").__oid().toString(); }
+BSONObj applyUpdates(const Registry *registry, const BSONElement &actualElement) {
+    string id = getId(actualElement);
 
-    const BSONObj &find(OperationContext *txn, const string &dbName, const StringData &collection, const BSONObj &filterElement,
+    BSONObj finalObj = actualElement.Obj();
+
+    vector<BSONObj *> sequenceOfUpdates = registry->getUpdated().find(id)->second;
+    for (BSONObj *update : sequenceOfUpdates) {
+        if (update->hasElement("$set")) {
+            MutableDocument *mutableUpdate = createMutableDocument(finalObj);
+            for (BSONElement field : update->getObjectField("$set")) {
+
+                const Value &val = Value(field);
+                log() << "updating " << field.toString();
+
+                mutableUpdate->setField(field.fieldNameStringData(), val);
+            }
+
+            const Document &document = mutableUpdate->freeze();
+            delete mutableUpdate;
+
+            finalObj = document.toBson();
+
+        } else {
+            MutableDocument *mutableUpdate = createMutableDocument(*update);
+            mutableUpdate->addField("_id", Value(finalObj.getField("_id")));
+            const Document &document = mutableUpdate->freeze();
+            delete mutableUpdate;
+            finalObj = document.toBson();
+
+            log() << "replacing with " << document.toString();
+        }
+    }
+    return finalObj;
+}
+
+string getId(const BSONElement &actualElement) {
+    return actualElement.Obj().getField("_id").__oid().toString();
+}
+
+const BSONObj find(OperationContext *txn, const string &dbName, const StringData &collection, const BSONObj &filterElement,
                         const Registry *registry) {
 
     BSONObjBuilder findCommandBuilder;
@@ -471,8 +548,7 @@ Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Regis
 
     const BSONObj &candidateRecords = inPlaceReplyBob.done();
     const Document &enrichedFindResults = enrichFindResultsFromRegistry(candidateRecords, registry);
-    const BSONObj &findResults = enrichedFindResults.toBson();
-    return findResults;
+    return enrichedFindResults.toBson();
 }
 
     // In SERVER-7775 we reimplemented the pseudo-commands fsyncUnlock, inProg, and killOp

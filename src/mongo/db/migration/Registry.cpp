@@ -40,7 +40,7 @@ namespace mongo {
     }
 
     void Registry::remove(string id) {
-        throw std::runtime_error("Unimplemented operation exception in registry");
+        removed.insert(id);
     }
 
     bool Registry::hasUpdated(const string &id) const {
