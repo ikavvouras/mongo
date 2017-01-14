@@ -4,6 +4,7 @@
 
 #include <map>
 #include <set>
+#include <vector>
 #include <string>
 
 #include "mongo/bson/bsonobj.h"
@@ -14,7 +15,7 @@ namespace mongo {
 
     class Registry {
         std::map<string, BSONObj *> inserted;
-        std::map<string, BSONObj *> updated;
+        std::map<string, std::vector<BSONObj *>> updated;
         std::set<string> removed;
     public:
         BSONObj *read(string id);
@@ -29,7 +30,7 @@ namespace mongo {
 
         const std::map<string, BSONObj *> &getInserted() const;
 
-        const std::map<string, BSONObj *> &getUpdated() const;
+        const std::map<string, std::vector<BSONObj *>> &getUpdated() const;
 
         const std::set<string> &getRemoved() const;
     };

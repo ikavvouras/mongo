@@ -397,35 +397,37 @@ Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Regis
 
         if (registry->getUpdated().find(id) != registry->getUpdated().end()) {
             log() << "found updated: " << id;
-            BSONObj *update = registry->getUpdated().find(id)->second;
 
-            // TODO perform the update over the actual element
+            BSONObj finalObj = actualElement.Obj();
 
-            if (update->hasElement("$set")) {
-                MutableDocument *expectedDocument = createMutableDocument(actualElement.Obj());
-                for (BSONElement field : update->getObjectField("$set")) {
+            std::vector<BSONObj *> sequenceOfUpdates = registry->getUpdated().find(id)->second;
+            for (BSONObj *update : sequenceOfUpdates) {
+                if (update->hasElement("$set")) {
+                    MutableDocument *mutableUpdate = createMutableDocument(finalObj);
+                    for (BSONElement field : update->getObjectField("$set")) {
 
+                        const Value &val = Value(field);
+                        log() << "updating " << field.toString();
 
-                    const Value &val = Value(field);
-                    log() << "updating " << field.toString();
+                        mutableUpdate->setField(field.fieldNameStringData(), val);
+                    }
 
-                    expectedDocument->setField(field.fieldNameStringData(), val);
+                    const Document &document = mutableUpdate->freeze();
+                    delete mutableUpdate;
+
+                    finalObj = document.toBson();
+
+                } else {
+                    MutableDocument *mutableUpdate = createMutableDocument(*update);
+                    mutableUpdate->addField("_id", Value(finalObj.getField("_id")));
+                    const Document &document = mutableUpdate->freeze();
+                    delete mutableUpdate;
+                    finalObj = document.toBson();
+
+                    log() << "replacing with " << document.toString();
                 }
-
-                const Document &document = expectedDocument->freeze();
-                delete expectedDocument;
-
-                resultsArrayBuilder.append(document.toBson());
-            } else {
-                MutableDocument *mutableUpdate = createMutableDocument(*update);
-                mutableUpdate->addField("_id", Value(actualElement.Obj().getField("_id")));
-                const Document &document = mutableUpdate->freeze();
-                delete mutableUpdate;
-
-                log() << "replacing with " << document.toString();
-
-                resultsArrayBuilder.append(document.toBson());
             }
+            resultsArrayBuilder.append(finalObj);
 
         } else if (!setContainsId2(registry->getRemoved(), id)) {
             resultsArrayBuilder.append(actualElement);

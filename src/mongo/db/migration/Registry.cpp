@@ -14,14 +14,23 @@ namespace mongo {
     }
 
     BSONObj *Registry::read(string id) {
-        return hasUpdated(id) ?
-               updated.find(id)->second :
-               getOrNull(inserted, id);
+//        return hasUpdated(id) ?
+//               updated.find(id)->second :
+//               getOrNull(inserted, id);
+        throw std::runtime_error("Unimplemented operation exception in registry");
     }
 
     BSONObj *Registry::update(string id, BSONObj *object) {
-        // TODO generate a copy of object
-        updated.insert(std::make_pair(id, object));
+
+        const std::map<string, std::vector<BSONObj *>>::iterator &iterator = updated.find(id);
+        if (iterator == updated.end()) {
+            std::vector<BSONObj *> *updates = new std::vector<BSONObj *>();
+            updates->push_back(object);
+            updated.insert(std::make_pair(id, *updates));
+        } else {
+            std::vector<BSONObj *> &updates = iterator->second;
+            updates.push_back(object);
+        }
 
         return object;
     }
@@ -34,13 +43,15 @@ namespace mongo {
         throw std::runtime_error("Unimplemented operation exception in registry");
     }
 
-    bool Registry::hasUpdated(const string &id) const { return updated.find(id) != updated.end(); }
+    bool Registry::hasUpdated(const string &id) const {
+        return updated.find(id) != updated.end();
+    }
 
     const std::map<string, BSONObj *> &Registry::getInserted() const {
         return inserted;
     }
 
-    const std::map<string, BSONObj *> &Registry::getUpdated() const {
+    const std::map<string, std::vector<BSONObj *>> &Registry::getUpdated() const {
         return updated;
     }
 
