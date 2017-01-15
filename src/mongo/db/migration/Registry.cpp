@@ -63,20 +63,12 @@ namespace mongo {
         return inserted;
     }
 
-    const std::map<string, std::vector<BSONObj *>> &Registry::getUpdated() const {
-        return updated;
-    }
-
-    const std::set<string> &Registry::getRemoved() const {
-        return removed;
-    }
-
     BSONObj Registry::applyUpdates(const BSONElement &actualElement) const {
         string id = getId(actualElement);
 
         BSONObj finalObj = actualElement.Obj();
 
-        vector<BSONObj *> sequenceOfUpdates = this->getUpdated().find(id)->second;
+        vector<BSONObj *> sequenceOfUpdates = this->updated.find(id)->second;
         for (BSONObj *update : sequenceOfUpdates) {
             if (update->hasElement("$set")) {
                 MutableDocument *mutableUpdate = createMutableDocument(finalObj);

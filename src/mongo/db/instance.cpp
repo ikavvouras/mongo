@@ -355,8 +355,6 @@ void runRemoveCommandInRegistry(OperationContext *txn, rpc::CommandReplyBuilder 
             registry->remove(id);
         }
 
-        // TODO remove assertions
-        log() << "registry->getRemoved().size() " << registry->getRemoved().size();
     }
 
 
@@ -392,8 +390,6 @@ void runUpdateIntoRegistry(OperationContext *txn, rpc::CommandReplyBuilder &repl
             registry->update(id, new BSONObj(update.copy()));
         }
 
-// TODO remove assertions
-        log() << "registry->getUpdated().size() " << registry->getUpdated().size();
     }
 
 

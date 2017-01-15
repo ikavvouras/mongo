@@ -34,11 +34,7 @@ namespace mongo {
 
         bool hasRemoved(const string &id) const;
 
-        const std::map<string, BSONObj *> &getInserted() const;
-
-        const std::map<string, std::vector<BSONObj *>> &getUpdated() const;
-
-        const std::set<string> &getRemoved() const;
+        const std::map<string, BSONObj *> &getInserted() const; // TODO make private or delete
 
         BSONObj applyUpdates(const BSONElement &actualElement) const;
     };
