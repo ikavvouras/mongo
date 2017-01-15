@@ -21,6 +21,9 @@ namespace mongo {
         std::map<string, BSONObj *> inserted;
         std::map<string, std::vector<BSONObj *>> updated;
         std::set<string> removed;
+
+        BSONObj updateFields(const BSONObj &actualObj, const BSONObj *update) const;
+        BSONObj replaceFields(const BSONObj &actualObj, const BSONObj *update) const;
     public:
         std::vector<BSONObj *> read(const BSONObj &query);
 
@@ -37,6 +40,7 @@ namespace mongo {
         const std::map<string, BSONObj *> &getInserted() const; // TODO make private or delete
 
         BSONObj applyUpdates(const BSONElement &actualElement) const;
+
     };
 
 }

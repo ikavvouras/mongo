@@ -71,38 +71,45 @@ namespace mongo {
         vector<BSONObj *> sequenceOfUpdates = this->updated.find(id)->second;
         for (BSONObj *update : sequenceOfUpdates) {
             if (update->hasElement("$set")) {
-                MutableDocument *mutableUpdate = createMutableDocument(finalObj);
-                for (BSONElement field : update->getObjectField("$set")) {
-
-                    const Value &val = Value(field);
-                    log() << "updating " << field.toString();
-
-                    mutableUpdate->setField(field.fieldNameStringData(), val);
-                }
-
-                const Document &document = mutableUpdate->freeze();
-                delete mutableUpdate;
-
-                finalObj = document.toBson();
-
+                finalObj = updateFields(finalObj, update);
             } else {
-                MutableDocument *mutableUpdate = createMutableDocument(*update);
-                mutableUpdate->addField("_id", Value(finalObj.getField("_id")));
-                const Document &document = mutableUpdate->freeze();
-                delete mutableUpdate;
-                finalObj = document.toBson();
-
-                log() << "replacing with " << document.toString();
+                finalObj = replaceFields(finalObj, update);
             }
         }
         return finalObj;
+    }
+
+    BSONObj Registry::replaceFields(const BSONObj &actualObj, const BSONObj *update) const {
+        MutableDocument *mutableUpdate = createMutableDocument(*update);
+        mutableUpdate->addField("_id", Value(actualObj.getField("_id")));
+        const Document &document = mutableUpdate->freeze();
+        delete mutableUpdate;
+        log() << "replacing with " << document.toString();
+
+        return document.toBson();
+    }
+
+    BSONObj Registry::updateFields(const BSONObj &actualObj, const BSONObj *update) const {
+        MutableDocument *mutableUpdate = createMutableDocument(actualObj);
+        for (BSONElement field : update->getObjectField("$set")) {
+
+            const Value &val = Value(field);
+            log() << "updating " << field.toString();
+
+            mutableUpdate->setField(field.fieldNameStringData(), val);
+        }
+
+        const Document &document = mutableUpdate->freeze();
+        delete mutableUpdate;
+
+        return document.toBson();
     }
 
     string getId(const BSONElement &actualElement) {
         return actualElement.Obj().getField("_id").__oid().toString();
     }
 
-    MutableDocument* createMutableDocument(const BSONObj &bsonObj) {
+    MutableDocument *createMutableDocument(const BSONObj &bsonObj) {
         Document document(bsonObj);
         return new MutableDocument(document);
     }
