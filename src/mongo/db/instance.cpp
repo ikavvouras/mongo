@@ -269,7 +269,10 @@ void receivedCommand(OperationContext* txn,
     dbResponse.responseToMsgId = responseToMsgId;
 }
 
-void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, Message& message) {
+    void runInsertCommandInRegistry(rpc::CommandReplyBuilder &replyBuilder, const rpc::CommandRequest &request,
+                                    Registry *registry);
+
+    void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, Message& message) {
     invariant(message.operation() == dbCommand);
 
     const int32_t responseToMsgId = message.header().getId();
@@ -306,27 +309,7 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
         } else if (req->getCommandName() == "delete" && migrator->isRegistryEnabled()) {
             runRemoveCommandInRegistry(txn, replyBuilder, request, migrator->getRegistry());
         } else if (req->getCommandName() == "insert" && migrator->isRegistryEnabled()) {
-            Registry *registry = migrator->getRegistry();
-            
-            const string &dbName = request.getDatabase().toString();
-            const StringData &collection = getCollectionFromRequest(request, "insert");
-
-            // TODO take into account `limit` and `ordered` { delete: "test_collection", deletes: [ { q: { x: 2.0 }, limit: 0.0 } ], ordered: true }
-
-            for (BSONElement newDocument : request.getCommandArgs().getField("documents").Array()) {
-                registry->insert(new BSONObj(newDocument.Obj().copy()));
-            }
-
-
-            log() << "CommandReplyBuilder ---> ";
-            size_t bytesToReserve = 0u;
-            BufBuilder &localBufBuilder = replyBuilder.getInPlaceReplyBuilder(bytesToReserve);
-            BSONObjBuilder localBsonObjBuilder(localBufBuilder);
-//            resultDocument.toBson(&localBsonObjBuilder); TODO add data
-            localBsonObjBuilder.doneFast();
-
-            BSONObjBuilder metadataBob; // TODO check metadata in replication/sharding
-            replyBuilder.setMetadata(metadataBob.done());
+            runInsertCommandInRegistry(replyBuilder, request, migrator->getRegistry());
         } else {
             runCommands(txn, request, &replyBuilder);
         }
@@ -355,8 +338,28 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
     dbResponse.responseToMsgId = responseToMsgId;
 }
 
+void runInsertCommandInRegistry(rpc::CommandReplyBuilder &replyBuilder, const rpc::CommandRequest &request, Registry *registry) {
+//    const string &dbName = request.getDatabase().toString(); TODO add dbName information
+//    const StringData &collection = getCollectionFromRequest(request, "insert"); TODO add collection information
+
+    for (BSONElement newDocument : request.getCommandArgs().getField("documents").Array()) {
+        registry->insert(new BSONObj(newDocument.Obj().copy()));
+    }
+
+
+    log() << "CommandReplyBuilder ---> ";
+    size_t bytesToReserve = 0u;
+    BufBuilder &localBufBuilder = replyBuilder.getInPlaceReplyBuilder(bytesToReserve);
+    BSONObjBuilder localBsonObjBuilder(localBufBuilder);
+    //            resultDocument.toBson(&localBsonObjBuilder); TODO add data
+    localBsonObjBuilder.doneFast();
+
+    BSONObjBuilder metadataBob; // TODO check metadata in replication/sharding
+    replyBuilder.setMetadata(metadataBob.done());
+}
+
 void runRemoveCommandInRegistry(OperationContext *txn, rpc::CommandReplyBuilder &replyBuilder,
-                                    const rpc::CommandRequest &request, Registry *registry) {
+                                const rpc::CommandRequest &request, Registry *registry) {
     const string &dbName = request.getDatabase().toString();
     const StringData &collection = getCollectionFromRequest(request, "delete");
 
