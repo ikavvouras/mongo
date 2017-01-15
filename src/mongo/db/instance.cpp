@@ -305,6 +305,28 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
             runUpdateIntoRegistry(txn, replyBuilder, request, migrator->getRegistry());
         } else if (req->getCommandName() == "delete" && migrator->isRegistryEnabled()) {
             runRemoveCommandInRegistry(txn, replyBuilder, request, migrator->getRegistry());
+        } else if (req->getCommandName() == "insert" && migrator->isRegistryEnabled()) {
+            Registry *registry = migrator->getRegistry();
+            
+            const string &dbName = request.getDatabase().toString();
+            const StringData &collection = getCollectionFromRequest(request, "insert");
+
+            // TODO take into account `limit` and `ordered` { delete: "test_collection", deletes: [ { q: { x: 2.0 }, limit: 0.0 } ], ordered: true }
+
+            for (BSONElement newDocument : request.getCommandArgs().getField("documents").Array()) {
+                registry->insert(new BSONObj(newDocument.Obj().copy()));
+            }
+
+
+            log() << "CommandReplyBuilder ---> ";
+            size_t bytesToReserve = 0u;
+            BufBuilder &localBufBuilder = replyBuilder.getInPlaceReplyBuilder(bytesToReserve);
+            BSONObjBuilder localBsonObjBuilder(localBufBuilder);
+//            resultDocument.toBson(&localBsonObjBuilder); TODO add data
+            localBsonObjBuilder.doneFast();
+
+            BSONObjBuilder metadataBob; // TODO check metadata in replication/sharding
+            replyBuilder.setMetadata(metadataBob.done());
         } else {
             runCommands(txn, request, &replyBuilder);
         }
@@ -335,14 +357,14 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
 
 void runRemoveCommandInRegistry(OperationContext *txn, rpc::CommandReplyBuilder &replyBuilder,
                                     const rpc::CommandRequest &request, Registry *registry) {
-        const StringData &collection = getCollectionFromRequest(request, "delete");
+    const string &dbName = request.getDatabase().toString();
+    const StringData &collection = getCollectionFromRequest(request, "delete");
 
     // TODO take into account `limit` and `ordered` { delete: "test_collection", deletes: [ { q: { x: 2.0 }, limit: 0.0 } ], ordered: true }
 
     for (BSONElement deletedElement : request.getCommandArgs().getField("deletes").Array()) {
         const BSONObj &filterElement = deletedElement.Obj().getObjectField("q");
 
-        const string &dbName = request.getDatabase().toString();
 
         const BSONObj &findResults = find(txn, dbName, collection, filterElement, registry);
 
@@ -371,13 +393,13 @@ void runRemoveCommandInRegistry(OperationContext *txn, rpc::CommandReplyBuilder 
 
 void runUpdateIntoRegistry(OperationContext *txn, rpc::CommandReplyBuilder &replyBuilder,
                            const rpc::CommandRequest &request, Registry *registry) {
+    const string &dbName = request.getDatabase().toString();
     const StringData &collection = getCollectionFromRequest(request, "update");
 
     for (BSONElement updatesElement : request.getCommandArgs().getField("updates").Array()) {
         const BSONObj &filterElement = updatesElement.Obj().getObjectField("q");
         const BSONObj &update = updatesElement.Obj().getObjectField("u");
 
-        const string &dbName = request.getDatabase().toString();
 
         const BSONObj &findResults = find(txn, dbName, collection, filterElement, registry);
 
@@ -439,6 +461,10 @@ Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Regis
 
     BSONArrayBuilder resultsArrayBuilder;
 
+    for (BSONObj &inserted : registry->getInserted()) {
+        resultsArrayBuilder.append(inserted);
+    }
+
     for (BSONElement actualElement : firstBatchElement.Obj()) {
 
         string id = getId(actualElement);
@@ -453,8 +479,6 @@ Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Regis
             resultsArrayBuilder.append(actualElement);
         }
     }
-
-    // TODO add registry.inserted
 
     const BSONArray &resultsArray = resultsArrayBuilder.arr();
 

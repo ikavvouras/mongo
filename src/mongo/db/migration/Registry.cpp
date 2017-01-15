@@ -40,8 +40,10 @@ namespace mongo {
         return object;
     }
 
-    BSONObj *Registry::write(string id, BSONObj *object) {
-        throw std::runtime_error("Unimplemented operation exception in registry");
+    BSONObj *Registry::insert(BSONObj *object) {
+        inserted.insert(std::make_pair(getId(*object), object));
+
+        return object;
     }
 
     void Registry::remove(string id) {
@@ -57,10 +59,6 @@ namespace mongo {
 
     bool Registry::hasRemoved(const string &id) const {
         return removed.find(id) != removed.end();
-    }
-
-    const std::map<string, BSONObj *> &Registry::getInserted() const {
-        return inserted;
     }
 
     BSONObj Registry::applyUpdates(const BSONElement &actualElement) const {
@@ -105,8 +103,22 @@ namespace mongo {
         return document.toBson();
     }
 
+    std::vector<BSONObj> Registry::getInserted() const {
+        vector<BSONObj> insertedValues;
+
+        for (const std::pair<const string, BSONObj *> & pair : inserted) {
+            insertedValues.push_back(*pair.second);
+        }
+
+        return insertedValues;
+    }
+
     string getId(const BSONElement &actualElement) {
-        return actualElement.Obj().getField("_id").__oid().toString();
+        return getId(actualElement.Obj());
+    }
+
+    string getId(const BSONObj &actualElement) {
+        return actualElement.getField("_id").__oid().toString();
     }
 
     MutableDocument *createMutableDocument(const BSONObj &bsonObj) {
