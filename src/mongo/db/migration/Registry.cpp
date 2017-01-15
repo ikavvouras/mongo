@@ -45,6 +45,9 @@ namespace mongo {
     }
 
     void Registry::remove(string id) {
+        updated.erase(id);
+        inserted.erase(id);
+
         removed.insert(id);
     }
 

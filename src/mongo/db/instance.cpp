@@ -127,8 +127,8 @@ namespace {
 
     const StringData getCollectionFromRequest(const rpc::CommandRequest &request, const char *name);
 
-    void runUpdateIntoRegisty(OperationContext *txn, rpc::CommandReplyBuilder &replyBuilder,
-                              const rpc::CommandRequest &request, Registry *registry);
+    void runUpdateIntoRegistry(OperationContext *txn, rpc::CommandReplyBuilder &replyBuilder,
+                               const rpc::CommandRequest &request, Registry *registry);
 
     mongo::Message &runFindCommandInRegisty(mongo::Message &response, const mongo::Registry *registry);
 
@@ -302,7 +302,7 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
         }
 
         if (req->getCommandName() == "update" && migrator->isRegistryEnabled()) {
-            runUpdateIntoRegisty(txn, replyBuilder, request, migrator->getRegistry());
+            runUpdateIntoRegistry(txn, replyBuilder, request, migrator->getRegistry());
         } else if (req->getCommandName() == "delete" && migrator->isRegistryEnabled()) {
             runRemoveCommandInRegistry(txn, replyBuilder, request, migrator->getRegistry());
         } else {
@@ -371,8 +371,8 @@ void runRemoveCommandInRegistry(OperationContext *txn, rpc::CommandReplyBuilder 
     replyBuilder.setMetadata(metadataBob.done());
 }
 
-void runUpdateIntoRegisty(OperationContext *txn, rpc::CommandReplyBuilder &replyBuilder,
-                          const rpc::CommandRequest &request, Registry *registry) {
+void runUpdateIntoRegistry(OperationContext *txn, rpc::CommandReplyBuilder &replyBuilder,
+                           const rpc::CommandRequest &request, Registry *registry) {
     const StringData &collection = getCollectionFromRequest(request, "update");
 
     for (BSONElement updatesElement : request.getCommandArgs().getField("updates").Array()) {
