@@ -5,6 +5,7 @@ Import("env")
 env.Library(
     target="migration",
     source=[
+        "migrate_cmd.cpp",
         "Migrator.cpp",
         "Registry.cpp"
     ],

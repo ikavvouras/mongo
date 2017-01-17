@@ -10,8 +10,7 @@ namespace mongo {
 
     class Migrator {
     private:
-//    Registry* registry = NULL;
-        Registry *registry = new Registry(); // TODO initialize via call
+        Registry *registry = NULL;
     public:
 
         static Migrator *getInstance() {
@@ -25,6 +24,10 @@ namespace mongo {
 
         Registry *getRegistry() {
             return registry;
+        }
+
+        void start() {
+            registry = new Registry();
         }
     };
 

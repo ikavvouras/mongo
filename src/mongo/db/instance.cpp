@@ -135,6 +135,8 @@ namespace {
     void runRemoveCommandInRegistry(OperationContext *txn, rpc::CommandReplyBuilder &replyBuilder,
                                     const rpc::CommandRequest &request, Registry *registry);
 
+    void runInsertCommandInRegistry(rpc::CommandReplyBuilder &replyBuilder, const rpc::CommandRequest &request,
+                                    Registry *registry);
 
     // for diaglog
 inline void opread(Message& m) {
@@ -269,10 +271,7 @@ void receivedCommand(OperationContext* txn,
     dbResponse.responseToMsgId = responseToMsgId;
 }
 
-    void runInsertCommandInRegistry(rpc::CommandReplyBuilder &replyBuilder, const rpc::CommandRequest &request,
-                                    Registry *registry);
-
-    void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, Message& message) {
+void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, Message& message) {
     invariant(message.operation() == dbCommand);
 
     const int32_t responseToMsgId = message.header().getId();
