@@ -20,12 +20,29 @@ namespace mongo {
 
     MutableDocument *createMutableDocument(const BSONObj &bsonObj);
 
-
     class Registry {
+    public:
+        virtual std::vector<BSONObj *> read(const BSONObj &query)= 0;
+
+        virtual BSONObj *insert(BSONObj *object)= 0;
+
+        virtual BSONObj *update(string id, BSONObj *object)= 0;
+
+        virtual void remove(string id)= 0;
+
+        virtual bool hasUpdated(const string &id) const = 0;
+
+        virtual bool hasRemoved(const string &id) const = 0;
+
+        virtual BSONObj applyUpdates(const BSONElement &actualElement) const = 0;
+
+        virtual std::vector<BSONObj> getInserted() const = 0;
+    };
+
+    class InMemoryRegistry : public Registry {
         std::map<string, BSONObj *> inserted;
         std::map<string, std::vector<BSONObj *>> updated;
         std::set<string> removed;
-
 
         BSONObj updateFields(const BSONObj &actualObj, const BSONObj *update) const;
 

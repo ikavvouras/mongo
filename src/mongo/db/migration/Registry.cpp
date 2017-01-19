@@ -18,14 +18,14 @@ namespace mongo {
                NULL;
     }
 
-    std::vector<BSONObj *> Registry::read(const BSONObj &query) {
+    std::vector<BSONObj *> InMemoryRegistry::read(const BSONObj &query) {
 //        return hasUpdated(id) ?
 //               updated.find(id)->second :
 //               getOrNull(inserted, id);
         throw std::runtime_error("Unimplemented operation exception in registry");
     }
 
-    BSONObj *Registry::update(string id, BSONObj *object) {
+    BSONObj *InMemoryRegistry::update(string id, BSONObj *object) {
 
         const std::map<string, std::vector<BSONObj *>>::iterator &iterator = updated.find(id);
         if (iterator == updated.end()) {
@@ -40,28 +40,28 @@ namespace mongo {
         return object;
     }
 
-    BSONObj *Registry::insert(BSONObj *object) {
+    BSONObj *InMemoryRegistry::insert(BSONObj *object) {
         inserted.insert(std::make_pair(getId(*object), object));
 
         return object;
     }
 
-    void Registry::remove(string id) {
+    void InMemoryRegistry::remove(string id) {
         updated.erase(id);
         inserted.erase(id);
 
         removed.insert(id);
     }
 
-    bool Registry::hasUpdated(const string &id) const {
+    bool InMemoryRegistry::hasUpdated(const string &id) const {
         return updated.find(id) != updated.end();
     }
 
-    bool Registry::hasRemoved(const string &id) const {
+    bool InMemoryRegistry::hasRemoved(const string &id) const {
         return removed.find(id) != removed.end();
     }
 
-    BSONObj Registry::applyUpdates(const BSONElement &actualElement) const {
+    BSONObj InMemoryRegistry::applyUpdates(const BSONElement &actualElement) const {
         string id = getId(actualElement);
 
         BSONObj finalObj = actualElement.Obj();
@@ -77,7 +77,7 @@ namespace mongo {
         return finalObj;
     }
 
-    BSONObj Registry::replaceFields(const BSONObj &actualObj, const BSONObj *update) const {
+    BSONObj InMemoryRegistry::replaceFields(const BSONObj &actualObj, const BSONObj *update) const {
         MutableDocument *mutableUpdate = createMutableDocument(*update);
         mutableUpdate->addField("_id", Value(actualObj.getField("_id")));
         const Document &document = mutableUpdate->freeze();
@@ -87,7 +87,7 @@ namespace mongo {
         return document.toBson();
     }
 
-    BSONObj Registry::updateFields(const BSONObj &actualObj, const BSONObj *update) const {
+    BSONObj InMemoryRegistry::updateFields(const BSONObj &actualObj, const BSONObj *update) const {
         MutableDocument *mutableUpdate = createMutableDocument(actualObj);
         for (BSONElement field : update->getObjectField("$set")) {
 
@@ -103,7 +103,7 @@ namespace mongo {
         return document.toBson();
     }
 
-    std::vector<BSONObj> Registry::getInserted() const {
+    std::vector<BSONObj> InMemoryRegistry::getInserted() const {
         vector<BSONObj> insertedValues;
 
         for (const std::pair<const string, BSONObj *> & pair : inserted) {

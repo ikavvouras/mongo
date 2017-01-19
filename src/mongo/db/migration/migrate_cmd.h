@@ -3,6 +3,7 @@
 #include "mongo/bson/util/bson_extract.h"
 #include "mongo/db/audit.h"
 #include "mongo/db/commands.h"
+#include "Migrator.h"
 
 namespace mongo {
 
@@ -44,7 +45,8 @@ public:
                      std::string& errmsg,
                      BSONObjBuilder& result);
 
-} addShard;
+    MongoServerCredentials extractMongoServerCredentials(BSONObj &obj);
+} migrate;
 
 }  // namespace
 }  // namespace mongo
