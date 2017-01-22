@@ -28,14 +28,14 @@ namespace mongo {
                          std::string &errmsg,
                          BSONObjBuilder &result) {
 
-        const string &action = cmdObj.getField(MIGRATE_COMMAND).toString(false);
+        const string &action = cmdObj.getField(MIGRATE_COMMAND).str();
 
         log() << "migration action: " << action;
 
         if (action == START_ACTION || action == "1.0") {
             Migrator *migrator = Migrator::getInstance();
 
-            migrator->start(extractMongoServerCredentials(cmdObj));
+            migrator->start(extractMongoServerCredentials(cmdObj), txn);
         } else if (action == "status") {
             log() << "status " << Migrator::getInstance()->isRegistryEnabled();
             result.append("status", Migrator::getInstance()->isRegistryEnabled());
@@ -51,17 +51,25 @@ namespace mongo {
         const BSONObj &target = obj.getObjectField("target");
 
         MongoServerCredentials credentials;
-        credentials.host = target.getField("host").toString(false);
-        credentials.username = target.getField("username").toString(false);
-        credentials.password = target.getField("password").toString(false);
+        credentials.host = target.getField("host").str();
         credentials.port = target.getField("port").numberInt();
 
-        const std::vector<BSONElement> &dbsArray = target.getField("dbs").Array();
-        std::transform(dbsArray.begin(), dbsArray.end(),
-                       credentials.dbs.begin(),
-                       [](BSONElement e) {
-                           return e.toString(false);
-                       });
+        if (target.hasField("username")) {
+            credentials.username = target.getField("username").str();
+        }
+        if (target.hasField("password")) {
+            credentials.password = target.getField("password").str();
+        }
+
+        if (target.hasField("dbs")) {
+            const std::vector<BSONElement> &dbsArray = target.getField("dbs").Array();
+            credentials.dbs.resize(dbsArray.size());
+            std::transform(dbsArray.begin(), dbsArray.end(),
+                           credentials.dbs.begin(),
+                           [](BSONElement e) {
+                               return e.toString(false);
+                           });
+        }
 
         return credentials;
     }

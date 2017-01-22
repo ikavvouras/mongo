@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "mongo/db/migration/Registry.h"
+#include "mongo/db/operation_context.h"
 
 namespace mongo {
 
@@ -26,7 +27,10 @@ namespace mongo {
 
         void flushRegistry();
 
-        void migrateData(MongoServerCredentials credentials);
+        void migrateData(MongoServerCredentials credentials, OperationContext *txn);
+
+        void getLocalDatabases(OperationContext *txn, std::vector<string> &dbs);
+
     public:
 
         static Migrator *getInstance() {
@@ -42,7 +46,7 @@ namespace mongo {
             return registry;
         }
 
-        void start(MongoServerCredentials mongoServerCredentials);
+        void start(MongoServerCredentials mongoServerCredentials, OperationContext *txn);
 
         void stop();
     };
