@@ -292,40 +292,7 @@ void receivedCommand(OperationContext* txn,
         QueryResult::View msg2 = response.buf();
         BSONObj resultBsonObj2(msg2.data());
         log() << "resultBsonObj22 " << resultBsonObj2.toString();
-    } else if (req->getCommandName() == "isMaster" && migrator->isHandoverEnabled()) {
-        log() << "before...";
-        QueryResult::View msg = response.buf();
-        log() << "after...";
-        BSONObj resultBsonObj(msg.data());
-        log() << "after2...";
-
-        log() << "isMaster -> " << resultBsonObj.toString();
-
-
-//        Document resultDocument = enrichFindResultsFromRegistry(resultBsonObj, registry);
-//
-        MutableDocument *resultMutableDocument = createMutableDocument(resultBsonObj);
-        BSONArray array = BSON_ARRAY("172.17.0.3:27017");
-        resultMutableDocument->setField("hosts", Value(array));
-        Document resultDocument = resultMutableDocument->freeze();
-        delete resultMutableDocument;
-
-        log() << "LegacyReplyBuilder ---> ";
-        rpc::LegacyReplyBuilder localReplyBuilder{};
-        size_t bytesToReserve = 0u;
-        BufBuilder &localBufBuilder = localReplyBuilder.getInPlaceReplyBuilder(bytesToReserve);
-        BSONObjBuilder localBsonObjBuilder(localBufBuilder);
-        resultDocument.toBson(&localBsonObjBuilder);
-        localBsonObjBuilder.doneFast();
-
-        log() << "LegacyReplyBuilder ---> localReplyBuilder.done()";
-
-        BSONObjBuilder metadataBob; // TODO check metadata in replication/sharding
-        localReplyBuilder.setMetadata(metadataBob.done());
-
-        response = localReplyBuilder.done();
     }
-
 
     op->debug().responseLength = response.header().dataLen();
 
@@ -394,35 +361,6 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
         MsgData::View msg2 = response.buf();
         BSONObj resultBsonObj2(msg2.data());
         log() << "resultBsonObj22 " << resultBsonObj2.toString();
-    } else if (req->getCommandName() == "isMaster" && migrator->isHandoverEnabled()) {
-        MsgData::View msg = response.buf();
-        BSONObj resultBsonObj(msg.data());
-
-        log() << "isMaster -> " << resultBsonObj.toString();
-
-
-//        Document resultDocument = enrichFindResultsFromRegistry(resultBsonObj, registry);
-//
-        MutableDocument *resultMutableDocument = createMutableDocument(resultBsonObj);
-        BSONArray array = BSON_ARRAY("172.17.0.3:27017");
-        resultMutableDocument->setField("hosts", Value(array));
-        Document resultDocument = resultMutableDocument->freeze();
-        delete resultMutableDocument;
-
-        log() << "CommandReplyBuilder ---> ";
-        rpc::CommandReplyBuilder localReplyBuilder{};
-        size_t bytesToReserve = 0u;
-        BufBuilder &localBufBuilder = localReplyBuilder.getInPlaceReplyBuilder(bytesToReserve);
-        BSONObjBuilder localBsonObjBuilder(localBufBuilder);
-        resultDocument.toBson(&localBsonObjBuilder);
-        localBsonObjBuilder.doneFast();
-
-        log() << "CommandReplyBuilder ---> localReplyBuilder.done()";
-
-        BSONObjBuilder metadataBob; // TODO check metadata in replication/sharding
-        localReplyBuilder.setMetadata(metadataBob.done());
-
-        response = localReplyBuilder.done();
     }
 
     curOp->debug().responseLength = response.header().dataLen();
