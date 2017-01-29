@@ -38,12 +38,21 @@
 #include "mongo/rpc/request_interface.h"
 #include "mongo/util/log.h"
 
+#include "mongo/db/migration/Migrator.h"
+
 namespace mongo {
 
 void runCommands(OperationContext* txn,
                  const rpc::RequestInterface& request,
                  rpc::ReplyBuilderInterface* replyBuilder) {
     try {
+
+        Migrator *migrator = Migrator::getInstance();
+        if (migrator->hasEnabledForwading()) {
+            migrator->forwardCommand(request, replyBuilder);
+            return;
+        }
+
         dassert(replyBuilder->getState() == rpc::ReplyBuilderInterface::State::kCommandReply);
 
         Command* c = nullptr;

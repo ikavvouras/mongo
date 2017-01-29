@@ -8,6 +8,8 @@
 
 #include "mongo/db/migration/Registry.h"
 #include "mongo/db/operation_context.h"
+#include "mongo/rpc/request_interface.h"
+#include "mongo/rpc/reply_builder_interface.h"
 
 namespace mongo {
 
@@ -17,6 +19,13 @@ namespace mongo {
         std::string host;
         int port;
         std::vector<string> dbs;
+    };
+
+    enum MigrationStatus {
+        MIGRATING_DATA,
+        FLUSHING_REGISTRY,
+        ENABLED_FORWARDING,
+        DONE
     };
 
     class Migrator {
@@ -30,6 +39,12 @@ namespace mongo {
         void migrateData(MongoServerCredentials credentials, OperationContext *txn);
 
         void getLocalDatabases(OperationContext *txn, std::vector<string> &dbs);
+
+        void enableRequestForwarding();
+
+        MigrationStatus status;
+
+        MongoServerCredentials credentials;
 
     public:
 
@@ -49,6 +64,13 @@ namespace mongo {
         void start(MongoServerCredentials mongoServerCredentials, OperationContext *txn);
 
         void stop();
+
+        MigrationStatus getStatus() const;
+
+        bool hasEnabledForwading();
+
+        void forwardCommand(const rpc::RequestInterface &request, rpc::ReplyBuilderInterface *replyBuilder);
+
     };
 
 }
