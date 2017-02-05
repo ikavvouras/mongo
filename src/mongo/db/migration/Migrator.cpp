@@ -15,7 +15,7 @@
 namespace mongo {
 
     void Migrator::start(MongoServerCredentials mongoServerCredentials, OperationContext *txn) {
-        enableRegistry();
+//        enableRegistry(); TODO uncomment
 
         migrateData(mongoServerCredentials, txn);
 
@@ -36,9 +36,15 @@ namespace mongo {
     }
 
     void Migrator::flushRegistry() {
+        log() << "flashing registry...";
+
         this->status = FLUSHING_REGISTRY;
 
-        // TODO
+        flushDeletedData();
+
+//        flushInsertedData();
+//
+//        flushUpdatedData();
     }
 
     void Migrator::migrateData(MongoServerCredentials credentials, OperationContext *txn) {
@@ -124,6 +130,30 @@ namespace mongo {
 
     bool Migrator::hasEnabledForwading() {
         return status != MIGRATING_DATA;
+    }
+
+    void Migrator::flushDeletedData() {
+
+        log() << "\t" << "flashing deleted data";
+
+        ScopedDbConnection connection("172.17.0.3:27017");
+        registry->flushDeletedData(connection);
+        connection.done();
+    }
+
+    bool Migrator::isRegistryEnabled() {
+        // TODO remove the following lines
+        if (registry == NULL) {
+            log() << " ---------------- should be called only once -----------------";
+            enableRegistry();
+        }
+        return true;
+
+//            return status == MIGRATING_DATA || status == FLUSHING_REGISTRY;
+    }
+
+    Registry *Migrator::getRegistry() {
+        return registry;
     }
 
 }

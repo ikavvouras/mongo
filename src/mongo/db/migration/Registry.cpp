@@ -50,7 +50,11 @@ namespace mongo {
         updated.erase(id);
         inserted.erase(id);
 
+        log() << "InMemoryRegistry::remove(" << id << ")";
+
         removed.insert(id);
+
+        log() << "InMemoryRegistry::removed.size()" << removed.size();
     }
 
     bool InMemoryRegistry::hasUpdated(const string &id) const {
@@ -111,6 +115,15 @@ namespace mongo {
         }
 
         return insertedValues;
+    }
+
+    void InMemoryRegistry::flushDeletedData(mongo::ScopedDbConnection &connection) {
+        log() << "flushing " << removed.size() << " deleted records";
+        for (string id : removed) { // TODO TEST
+            Query query = QUERY("_id" << OID(id));
+            log() << "flushDeletedData :: query : " << query.toString();
+            connection.get()->remove("test_db.test_collection", query);
+        }
     }
 
     string getId(const BSONElement &actualElement) {

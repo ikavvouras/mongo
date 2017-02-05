@@ -53,13 +53,9 @@ namespace mongo {
             return migrator;
         }
 
-        bool isRegistryEnabled() {
-            return registry != NULL;
-        }
+        bool isRegistryEnabled();
 
-        Registry *getRegistry() {
-            return registry;
-        }
+        Registry *getRegistry();
 
         void start(MongoServerCredentials mongoServerCredentials, OperationContext *txn);
 
@@ -71,6 +67,7 @@ namespace mongo {
 
         void forwardCommand(const rpc::RequestInterface &request, rpc::ReplyBuilderInterface *replyBuilder);
 
+        void flushDeletedData();
     };
 
 }

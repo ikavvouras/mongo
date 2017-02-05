@@ -317,6 +317,7 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
         // database is validated here
         rpc::CommandRequest request{&message};
 
+        log() << "------------------------------------------------------";
         log() << "req->getCommandName() " << request.getCommandName();
         log() << "getCommandArgs: " << request.getCommandArgs().toString();
         log() << "getMetadata:    " << request.getMetadata().toString();

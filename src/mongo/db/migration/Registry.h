@@ -6,6 +6,7 @@
 #include <set>
 #include <vector>
 #include <string>
+#include <mongo/client/connpool.h>
 
 #include "mongo/bson/bsonobj.h"
 #include "mongo/db/pipeline/document.h"
@@ -22,13 +23,13 @@ namespace mongo {
 
     class Registry {
     public:
-        virtual std::vector<BSONObj *> read(const BSONObj &query)= 0;
+        virtual std::vector<BSONObj *> read(const BSONObj &query) = 0;
 
-        virtual BSONObj *insert(BSONObj *object)= 0;
+        virtual BSONObj *insert(BSONObj *object) = 0;
 
-        virtual BSONObj *update(string id, BSONObj *object)= 0;
+        virtual BSONObj *update(string id, BSONObj *object) = 0;
 
-        virtual void remove(string id)= 0;
+        virtual void remove(string id) = 0;
 
         virtual bool hasUpdated(const string &id) const = 0;
 
@@ -37,6 +38,8 @@ namespace mongo {
         virtual BSONObj applyUpdates(const BSONElement &actualElement) const = 0;
 
         virtual std::vector<BSONObj> getInserted() const = 0;
+
+        virtual void flushDeletedData(mongo::ScopedDbConnection &connection) = 0;
     };
 
     class InMemoryRegistry : public Registry {
@@ -65,6 +68,7 @@ namespace mongo {
 
         std::vector<BSONObj> getInserted() const;
 
+        void flushDeletedData(mongo::ScopedDbConnection &connection);
     };
 
 }
