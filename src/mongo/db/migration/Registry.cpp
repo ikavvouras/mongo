@@ -27,21 +27,27 @@ namespace mongo {
 
     BSONObj *InMemoryRegistry::update(string id, BSONObj *object) {
 
-        const std::map<string, std::vector<BSONObj *>>::iterator &iterator = updated.find(id);
+        const std::map<string, std::vector<Record *>>::iterator &iterator = updated.find(id);
         if (iterator == updated.end()) {
-            std::vector<BSONObj *> *updates = new std::vector<BSONObj *>();
-            updates->push_back(object);
+            std::vector<Record *> *updates = new std::vector<Record *>();
+            Record *record = new Record();
+            record->bsonObj = object;
+            updates->push_back(record);
             updated.insert(std::make_pair(id, *updates));
         } else {
-            std::vector<BSONObj *> &updates = iterator->second;
-            updates.push_back(object);
+            std::vector<Record *> &updates = iterator->second;
+            Record *record = new Record();
+            record->bsonObj = object;
+            updates.push_back(record);
         }
 
         return object;
     }
 
     BSONObj *InMemoryRegistry::insert(BSONObj *object) {
-        inserted.insert(std::make_pair(getId(*object), object));
+        Record *record = new Record();
+        record->bsonObj = object;
+        inserted.insert(std::make_pair(getId(*object), record));
 
         return object;
     }
@@ -70,12 +76,12 @@ namespace mongo {
 
         BSONObj finalObj = actualElement.Obj();
 
-        vector<BSONObj *> sequenceOfUpdates = this->updated.find(id)->second;
-        for (BSONObj *update : sequenceOfUpdates) {
-            if (update->hasElement("$set")) {
-                finalObj = updateFields(finalObj, update);
+        vector<Record *> sequenceOfUpdates = this->updated.find(id)->second;
+        for (Record *update : sequenceOfUpdates) {
+            if (update->bsonObj->hasElement("$set")) {
+                finalObj = updateFields(finalObj, update->bsonObj);
             } else {
-                finalObj = replaceFields(finalObj, update);
+                finalObj = replaceFields(finalObj, update->bsonObj);
             }
         }
         return finalObj;
@@ -110,8 +116,8 @@ namespace mongo {
     std::vector<BSONObj> InMemoryRegistry::getInserted() const {
         vector<BSONObj> insertedValues;
 
-        for (const std::pair<const string, BSONObj *> & pair : inserted) {
-            insertedValues.push_back(*pair.second);
+        for (const std::pair<const string, Record *> &pair : inserted) {
+            insertedValues.push_back(*pair.second->bsonObj);
         }
 
         return insertedValues;
@@ -119,10 +125,29 @@ namespace mongo {
 
     void InMemoryRegistry::flushDeletedData(mongo::ScopedDbConnection &connection) {
         log() << "flushing " << removed.size() << " deleted records";
-        for (string id : removed) { // TODO TEST
+        for (string id : removed) {
             Query query = QUERY("_id" << OID(id));
             log() << "flushDeletedData :: query : " << query.toString();
-            connection.get()->remove("test_db.test_collection", query);
+            connection.get()->remove("test_db.test_collection", query); // TODO
+        }
+    }
+
+    void InMemoryRegistry::flushUpdatedData(mongo::ScopedDbConnection &connection) {
+        for (const std::pair<const string, std::vector<Record *>> &pair : updated) {
+
+            string id = pair.first;
+            Query query = QUERY("_id" << OID(id));
+
+            for (Record *bsonObjRecord : pair.second) {
+
+                if (!bsonObjRecord->flushed) {
+                    log() << "flushUpdatedData :: query : " << query.toString()
+                          << " with " << bsonObjRecord->bsonObj->toString();
+
+                    connection.get()->update("test_db.test_collection", query, *bsonObjRecord->bsonObj); // TODO
+                    bsonObjRecord->flushed = true;
+                }
+            }
         }
     }
 

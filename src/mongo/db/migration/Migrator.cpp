@@ -42,9 +42,9 @@ namespace mongo {
 
         flushDeletedData();
 
-//        flushInsertedData();
-//
-//        flushUpdatedData();
+        flushInsertedData();
+
+        flushUpdatedData();
     }
 
     void Migrator::migrateData(MongoServerCredentials credentials, OperationContext *txn) {
@@ -132,13 +132,8 @@ namespace mongo {
         return status != MIGRATING_DATA;
     }
 
-    void Migrator::flushDeletedData() {
-
-        log() << "\t" << "flashing deleted data";
-
-        ScopedDbConnection connection("172.17.0.3:27017");
-        registry->flushDeletedData(connection);
-        connection.done();
+    Registry *Migrator::getRegistry() {
+        return registry;
     }
 
     bool Migrator::isRegistryEnabled() {
@@ -152,8 +147,34 @@ namespace mongo {
 //            return status == MIGRATING_DATA || status == FLUSHING_REGISTRY;
     }
 
-    Registry *Migrator::getRegistry() {
-        return registry;
+    void Migrator::flushDeletedData() {
+
+        log() << "\t" << "flashing deleted data";
+
+        ScopedDbConnection connection("172.17.0.3:27017"); // TODO
+        registry->flushDeletedData(connection);
+        connection.done();
+    }
+
+    void Migrator::flushInsertedData() {
+        log() << "\t" << "flashing inserted data";
+
+        ScopedDbConnection connection("172.17.0.3:27017"); // TODO
+
+        for (BSONObj bsonObj : registry->getInserted()) {
+            log() << "\t\t" << "flashing " << bsonObj.toString();
+            connection.get()->insert("test_db.test_collection", bsonObj); // TODO
+        }
+
+        connection.done();
+    }
+
+    void Migrator::flushUpdatedData() {
+        log() << "\t" << "flashing updated data";
+
+        ScopedDbConnection connection("172.17.0.3:27017"); // TODO
+        registry->flushUpdatedData(connection);
+        connection.done();
     }
 
 }

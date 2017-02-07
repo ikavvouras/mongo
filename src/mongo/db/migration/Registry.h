@@ -21,6 +21,12 @@ namespace mongo {
 
     MutableDocument *createMutableDocument(const BSONObj &bsonObj);
 
+    struct Record {
+        BSONObj *bsonObj;
+        string id;
+        bool flushed = false;
+    };
+
     class Registry {
     public:
         virtual std::vector<BSONObj *> read(const BSONObj &query) = 0;
@@ -40,11 +46,13 @@ namespace mongo {
         virtual std::vector<BSONObj> getInserted() const = 0;
 
         virtual void flushDeletedData(mongo::ScopedDbConnection &connection) = 0;
+
+        virtual void flushUpdatedData(mongo::ScopedDbConnection &connection) = 0;
     };
 
     class InMemoryRegistry : public Registry {
-        std::map<string, BSONObj *> inserted;
-        std::map<string, std::vector<BSONObj *>> updated;
+        std::map<string, Record *> inserted;
+        std::map<string, std::vector<Record *>> updated;
         std::set<string> removed;
 
         BSONObj updateFields(const BSONObj &actualObj, const BSONObj *update) const;
@@ -69,6 +77,9 @@ namespace mongo {
         std::vector<BSONObj> getInserted() const;
 
         void flushDeletedData(mongo::ScopedDbConnection &connection);
+
+        void flushUpdatedData(mongo::ScopedDbConnection &connection);
+
     };
 
 }

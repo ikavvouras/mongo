@@ -68,6 +68,10 @@ namespace mongo {
         void forwardCommand(const rpc::RequestInterface &request, rpc::ReplyBuilderInterface *replyBuilder);
 
         void flushDeletedData();
+
+        void flushInsertedData();
+
+        void flushUpdatedData();
     };
 
 }
