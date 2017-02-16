@@ -245,7 +245,8 @@ void receivedCommand(OperationContext* txn,
         // This will throw if the request is on an invalid namespace.
         rpc::LegacyRequest request{&message};
         req = &request;
-        
+
+        log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
         log() << "receivedCommand :: req->getCommandName() " << request.getCommandName();
         log() << "receivedCommand :: getCommandArgs: " << request.getCommandArgs().toString();
         log() << "receivedCommand :: getMetadata:    " << request.getMetadata().toString();

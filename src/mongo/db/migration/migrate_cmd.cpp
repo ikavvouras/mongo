@@ -36,9 +36,21 @@ namespace mongo {
             Migrator *migrator = Migrator::getInstance();
 
             migrator->start(extractMongoServerCredentials(cmdObj), txn);
+
         } else if (action == "status") {
             log() << "status " << Migrator::getInstance()->isRegistryEnabled();
             result.append("status", Migrator::getInstance()->isRegistryEnabled());
+
+        } else if (action == "migrateData") {
+            // manual testing
+            log() << "enabled registry: " << Migrator::getInstance()->isRegistryEnabled();
+            Migrator::getInstance()->migrateData(extractMongoServerCredentials(cmdObj), txn);
+        } else if (action == "enableRequestForwarding") {
+            // manual testing
+            Migrator::getInstance()->enableRequestForwarding();
+        } else if (action == "flushRegistry") {
+            // manual testing
+            Migrator::getInstance()->flushRegistry();
         } else {
             return false;
         }

@@ -16,6 +16,7 @@ namespace mongo {
 
     void Migrator::start(MongoServerCredentials mongoServerCredentials, OperationContext *txn) {
 //        enableRegistry(); TODO uncomment
+        isRegistryEnabled(); // TODO remove after uncommenting previous line
 
         migrateData(mongoServerCredentials, txn);
 
@@ -152,6 +153,7 @@ namespace mongo {
         log() << "\t" << "flashing deleted data";
 
         ScopedDbConnection connection("172.17.0.3:27017"); // TODO
+        log() << "registry enabled: " << (registry != NULL);
         registry->flushDeletedData(connection);
         connection.done();
     }

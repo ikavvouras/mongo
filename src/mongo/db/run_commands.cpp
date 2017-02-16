@@ -48,7 +48,9 @@ void runCommands(OperationContext* txn,
     try {
 
         Migrator *migrator = Migrator::getInstance();
-        if (migrator->hasEnabledForwading()) {
+        if (migrator->hasEnabledForwading()
+            // TODO for manual testing
+            && (request.getCommandName() != "migrate")) {
             migrator->forwardCommand(request, replyBuilder);
             return;
         }

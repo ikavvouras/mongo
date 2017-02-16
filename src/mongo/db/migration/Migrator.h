@@ -32,21 +32,27 @@ namespace mongo {
     private:
         Registry *registry = NULL;
 
-        void enableRegistry();
-
-        void flushRegistry();
-
-        void migrateData(MongoServerCredentials credentials, OperationContext *txn);
-
-        void getLocalDatabases(OperationContext *txn, std::vector<string> &dbs);
-
-        void enableRequestForwarding();
-
         MigrationStatus status;
 
         MongoServerCredentials credentials;
 
+
+        void enableRegistry();
+
+        void getLocalDatabases(OperationContext *txn, std::vector<string> &dbs);
+
+        void flushDeletedData();
+
+        void flushInsertedData();
+
+        void flushUpdatedData();
+
     public:
+        // TODO make private
+        void migrateData(MongoServerCredentials credentials, OperationContext *txn);
+        void enableRequestForwarding();
+        void flushRegistry();
+
 
         static Migrator *getInstance() {
             static Migrator *migrator = new Migrator();
@@ -66,12 +72,6 @@ namespace mongo {
         bool hasEnabledForwading();
 
         void forwardCommand(const rpc::RequestInterface &request, rpc::ReplyBuilderInterface *replyBuilder);
-
-        void flushDeletedData();
-
-        void flushInsertedData();
-
-        void flushUpdatedData();
     };
 
 }
