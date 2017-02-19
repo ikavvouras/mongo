@@ -14,11 +14,11 @@
 
 namespace mongo {
 
-    void Migrator::start(MongoServerCredentials mongoServerCredentials, OperationContext *txn) {
+    void Migrator::start(MongoServerCredentials targetCredentials, MongoServerCredentials hostCredentials, OperationContext *txn) {
 //        enableRegistry(); TODO uncomment
         isRegistryEnabled(); // TODO remove after uncommenting previous line
 
-        migrateData(mongoServerCredentials, txn);
+        migrateData(targetCredentials, hostCredentials, txn);
 
         enableRequestForwarding();
 
@@ -48,14 +48,16 @@ namespace mongo {
         flushUpdatedData();
     }
 
-    void Migrator::migrateData(MongoServerCredentials credentials, OperationContext *txn) {
+    void Migrator::migrateData(MongoServerCredentials targetCredentials,
+                               MongoServerCredentials hostCredentials,
+                               OperationContext *txn) {
         log() << "migrating data...";
         this->status = MIGRATING_DATA;
 
-        this->credentials = credentials;
+        this->targetCredentials = targetCredentials;
 
         StringData application = "migration";
-        HostAndPort hostAndPort(credentials.host, credentials.port);
+        HostAndPort hostAndPort(targetCredentials.host, targetCredentials.port);
 
         DBClientConnection connection;
         mongo::Status connectionStatus = connection.connect(hostAndPort, application);
@@ -63,14 +65,14 @@ namespace mongo {
 
         int port = serverGlobalParams.port;
 
-        if (credentials.dbs.empty()) {
-            getLocalDatabases(txn, credentials.dbs);
+        if (targetCredentials.dbs.empty()) {
+            getLocalDatabases(txn, targetCredentials.dbs);
         }
 
-        for (string db : credentials.dbs) {
+        for (string db : targetCredentials.dbs) {
             string fromDB = db;
             string toDB = db;
-            const string hostIp = "172.17.0.1"; // TODO retrieve
+            const string hostIp = hostCredentials.host;
             const string host = hostIp + ":" + std::to_string(port);
 
             log() << "\t" << "copying database '" << db << "'...";
@@ -111,10 +113,8 @@ namespace mongo {
         log() << "forwarding command : " << request.getCommandArgs();
 
         StringData application = "migration";
-//        HostAndPort hostAndPort(credentials.host, credentials.port);
-        HostAndPort hostAndPort("172.17.0.3", 27017); // TODO
-
-        ScopedDbConnection connection("172.17.0.3:27017"); // TODO
+        HostAndPort hostAndPort(targetCredentials.host, targetCredentials.port);
+        ScopedDbConnection connection(hostAndPort.toString());
 
         string dbname = request.getDatabase().toString();
         const BSONObj &cmd = request.getCommandArgs();
@@ -152,7 +152,9 @@ namespace mongo {
 
         log() << "\t" << "flashing deleted data";
 
-        ScopedDbConnection connection("172.17.0.3:27017"); // TODO
+        HostAndPort hostAndPort(targetCredentials.host, targetCredentials.port);
+        ScopedDbConnection connection(hostAndPort.toString());
+
         log() << "registry enabled: " << (registry != NULL);
         registry->flushDeletedData(connection);
         connection.done();
@@ -161,7 +163,8 @@ namespace mongo {
     void Migrator::flushInsertedData() {
         log() << "\t" << "flashing inserted data";
 
-        ScopedDbConnection connection("172.17.0.3:27017"); // TODO
+        HostAndPort hostAndPort(targetCredentials.host, targetCredentials.port);
+        ScopedDbConnection connection(hostAndPort.toString());
 
         for (BSONObj bsonObj : registry->getInserted()) {
             log() << "\t\t" << "flashing " << bsonObj.toString();
@@ -174,7 +177,9 @@ namespace mongo {
     void Migrator::flushUpdatedData() {
         log() << "\t" << "flashing updated data";
 
-        ScopedDbConnection connection("172.17.0.3:27017"); // TODO
+        HostAndPort hostAndPort(targetCredentials.host, targetCredentials.port);
+        ScopedDbConnection connection(hostAndPort.toString());
+
         registry->flushUpdatedData(connection);
         connection.done();
     }

@@ -35,7 +35,7 @@ namespace mongo {
         if (action == START_ACTION || action == "1.0") {
             Migrator *migrator = Migrator::getInstance();
 
-            migrator->start(extractMongoServerCredentials(cmdObj), txn);
+            migrator->start(extractTargetMongoServerCredentials(cmdObj), extractHostMongoServerCredentials(cmdObj), txn);
 
         } else if (action == "status") {
             log() << "status " << Migrator::getInstance()->isRegistryEnabled();
@@ -44,7 +44,8 @@ namespace mongo {
         } else if (action == "migrateData") {
             // manual testing
             log() << "enabled registry: " << Migrator::getInstance()->isRegistryEnabled();
-            Migrator::getInstance()->migrateData(extractMongoServerCredentials(cmdObj), txn);
+            Migrator::getInstance()->migrateData(extractTargetMongoServerCredentials(cmdObj),
+                                                 extractHostMongoServerCredentials(cmdObj), txn);
         } else if (action == "enableRequestForwarding") {
             // manual testing
             Migrator::getInstance()->enableRequestForwarding();
@@ -58,13 +59,28 @@ namespace mongo {
         return true;
     }
 
-    MongoServerCredentials MigrateCmd::extractMongoServerCredentials(BSONObj &obj) {
+    MongoServerCredentials MigrateCmd::extractTargetMongoServerCredentials(BSONObj &obj) {
 
         const BSONObj &target = obj.getObjectField("target");
 
+        return convertToMongoServerCredentials(target);
+
+    }
+
+    MongoServerCredentials MigrateCmd::extractHostMongoServerCredentials(BSONObj &obj) {
+        const BSONObj &target = obj.getObjectField("host");
+
+        return convertToMongoServerCredentials(target);
+    }
+
+    // TODO extract to converter class
+    MongoServerCredentials MigrateCmd::convertToMongoServerCredentials(const BSONObj &target) const {
         MongoServerCredentials credentials;
         credentials.host = target.getField("host").str();
-        credentials.port = target.getField("port").numberInt();
+
+        if (target.hasField("port")) {
+            credentials.port = target.getField("port").numberInt();
+        }
 
         if (target.hasField("username")) {
             credentials.username = target.getField("username").str();
@@ -76,11 +92,11 @@ namespace mongo {
         if (target.hasField("dbs")) {
             const std::vector<BSONElement> &dbsArray = target.getField("dbs").Array();
             credentials.dbs.resize(dbsArray.size());
-            std::transform(dbsArray.begin(), dbsArray.end(),
-                           credentials.dbs.begin(),
-                           [](BSONElement e) {
-                               return e.toString(false);
-                           });
+            transform(dbsArray.begin(), dbsArray.end(),
+                      credentials.dbs.begin(),
+                      [](BSONElement e) {
+                          return e.toString(false);
+                      });
         }
 
         return credentials;

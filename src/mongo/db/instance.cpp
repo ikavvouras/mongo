@@ -399,6 +399,8 @@ void runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBuilderInterfac
 
     // TODO take into account `limit` and `ordered` { delete: "test_collection", deletes: [ { q: { x: 2.0 }, limit: 0.0 } ], ordered: true }
 
+    int nRemoved = 0;
+
     for (BSONElement deletedElement : request.getCommandArgs().getField("deletes").Array()) {
         const BSONObj &filterElement = deletedElement.Obj().getObjectField("q");
 
@@ -412,6 +414,7 @@ void runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBuilderInterfac
             log() << "removing( " << id << " ) :: " << removingRecord.toString(false);
 
             registry->remove(id);
+            ++nRemoved;
         }
 
     }
@@ -421,7 +424,8 @@ void runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBuilderInterfac
     size_t bytesToReserve = 0u;
     BufBuilder &localBufBuilder = replyBuilder.getInPlaceReplyBuilder(bytesToReserve);
     BSONObjBuilder localBsonObjBuilder(localBufBuilder);
-//            resultDocument.toBson(&localBsonObjBuilder); TODO add data
+    localBsonObjBuilder.appendNumber("n", nRemoved);
+    localBsonObjBuilder.appendNumber("ok", 1);
     localBsonObjBuilder.doneFast();
 
     BSONObjBuilder metadataBob; // TODO check metadata in replication/sharding

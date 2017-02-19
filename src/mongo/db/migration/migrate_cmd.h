@@ -15,6 +15,11 @@ const ReadPreferenceSetting kPrimaryOnlyReadPreference{ReadPreference::PrimaryOn
 const char kShardAdded[] = "shardAdded";
 
 class MigrateCmd : public Command {
+    MongoServerCredentials extractTargetMongoServerCredentials(BSONObj &obj);
+
+    MongoServerCredentials extractHostMongoServerCredentials(BSONObj &obj);
+
+    MongoServerCredentials convertToMongoServerCredentials(const BSONObj &target) const;
 public:
     MigrateCmd() : Command("migrate", false, "migrate") {}
 
@@ -45,7 +50,6 @@ public:
                      std::string& errmsg,
                      BSONObjBuilder& result);
 
-    MongoServerCredentials extractMongoServerCredentials(BSONObj &obj);
 } migrate;
 
 }  // namespace

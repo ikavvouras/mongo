@@ -34,7 +34,7 @@ namespace mongo {
 
         MigrationStatus status;
 
-        MongoServerCredentials credentials;
+        MongoServerCredentials targetCredentials;
 
 
         void enableRegistry();
@@ -49,8 +49,11 @@ namespace mongo {
 
     public:
         // TODO make private
-        void migrateData(MongoServerCredentials credentials, OperationContext *txn);
+        void migrateData(MongoServerCredentials targetCredentials, MongoServerCredentials hostCredentials,
+                         OperationContext *txn);
+
         void enableRequestForwarding();
+
         void flushRegistry();
 
 
@@ -63,7 +66,8 @@ namespace mongo {
 
         Registry *getRegistry();
 
-        void start(MongoServerCredentials mongoServerCredentials, OperationContext *txn);
+        void start(MongoServerCredentials targetCredentials, MongoServerCredentials hostCredentials,
+                   OperationContext *txn);
 
         void stop();
 
