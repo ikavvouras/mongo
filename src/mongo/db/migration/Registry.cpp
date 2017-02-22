@@ -58,7 +58,10 @@ namespace mongo {
 
         log() << "InMemoryRegistry::remove(" << id << ")";
 
-        removed.insert(id);
+        Record *record = new Record();
+        record->id = id;
+
+        removed.insert(std::make_pair(id, record));
 
         log() << "InMemoryRegistry::removed.size()" << removed.size();
     }
@@ -125,10 +128,15 @@ namespace mongo {
 
     void InMemoryRegistry::flushDeletedData(mongo::ScopedDbConnection &connection) {
         log() << "flushing " << removed.size() << " deleted records";
-        for (string id : removed) {
+        for (const std::pair<const string, Record *> &pair : removed) {
+
+            string id = pair.first;
+
             Query query = QUERY("_id" << OID(id));
             log() << "flushDeletedData :: query : " << query.toString();
             connection.get()->remove("test_db.test_collection", query); // TODO
+
+            pair.second->flushed = true;
         }
     }
 

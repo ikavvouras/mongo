@@ -53,7 +53,7 @@ namespace mongo {
     class InMemoryRegistry : public Registry {
         std::map<string, Record *> inserted;
         std::map<string, std::vector<Record *>> updated;
-        std::set<string> removed;
+        std::map<string, Record *> removed;
 
         BSONObj updateFields(const BSONObj &actualObj, const BSONObj *update) const;
 
