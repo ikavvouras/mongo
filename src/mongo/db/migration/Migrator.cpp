@@ -20,9 +20,9 @@ namespace mongo {
 
         migrateData(targetCredentials, hostCredentials, txn);
 
-        enableRequestForwarding();
-
         flushRegistry();
+
+        enableRequestForwarding();
 
         this->status = DONE;
     }
@@ -143,9 +143,8 @@ namespace mongo {
             log() << " ---------------- should be called only once -----------------";
             enableRegistry();
         }
-        return true;
 
-//            return status == MIGRATING_DATA || status == FLUSHING_REGISTRY;
+        return status == MIGRATING_DATA/* || status == FLUSHING_REGISTRY*/;
     }
 
     void Migrator::flushDeletedData() {

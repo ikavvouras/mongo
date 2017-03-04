@@ -7,6 +7,8 @@
 #include "mongo/util/log.h"
 #include "mongo/db/migration/Registry.h"
 
+#include <unistd.h> // TODO remove after sleep(1) removal
+
 namespace mongo {
 
     using std::string;
@@ -129,6 +131,11 @@ namespace mongo {
     void InMemoryRegistry::flushDeletedData(mongo::ScopedDbConnection &connection) {
         log() << "flushing " << removed.size() << " deleted records";
         for (const std::pair<const string, Record *> &pair : removed) {
+
+            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+            log() << "~~~~~~~~~~~~~~~ sleeping for 5\" ~~~~~~~~~~~~~~~~";
+            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+            sleep(5);
 
             string id = pair.first;
 
