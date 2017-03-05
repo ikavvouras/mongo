@@ -7,7 +7,7 @@
 #include "mongo/util/log.h"
 #include "mongo/db/migration/Registry.h"
 
-#include <unistd.h> // TODO remove after sleep(1) removal
+#include <unistd.h> // TODO remove after sleep(1) removal ~~~~~~~~~~~~~~~~~~~~~~
 
 namespace mongo {
 
@@ -58,14 +58,14 @@ namespace mongo {
         updated.erase(id);
         inserted.erase(id);
 
-        log() << "InMemoryRegistry::remove(" << id << ")";
+        log() << "InMemoryRegistry::remove( " << id << " )";
 
         Record *record = new Record();
         record->id = id;
 
         removed.insert(std::make_pair(id, record));
 
-        log() << "InMemoryRegistry::removed.size()" << removed.size();
+        log() << "InMemoryRegistry::removed.size() " << removed.size();
     }
 
     bool InMemoryRegistry::hasUpdated(const string &id) const {
@@ -133,18 +133,24 @@ namespace mongo {
         for (const std::pair<const string, Record *> &pair : removed) {
 
             log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
             log() << "~~~~~~~~~~~~~~~ sleeping for 5\" ~~~~~~~~~~~~~~~~";
+            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
             log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
             sleep(5);
 
             string id = pair.first;
 
-            Query query = QUERY("_id" << OID(id));
-            log() << "flushDeletedData :: query : " << query.toString();
-            connection.get()->remove("test_db.test_collection", query); // TODO
+            flushDeletedRecord(connection, id);
 
             pair.second->flushed = true;
         }
+    }
+
+    void InMemoryRegistry::flushDeletedRecord(ScopedDbConnection &connection, const string &id) const {
+        Query query = QUERY("_id" << OID(id));
+        log() << "flushDeletedData :: query : " << query.toString();
+        connection.get()->remove("test_db.test_collection", query); // TODO
     }
 
     void InMemoryRegistry::flushUpdatedData(mongo::ScopedDbConnection &connection) {
@@ -162,6 +168,46 @@ namespace mongo {
                     connection.get()->update("test_db.test_collection", query, *bsonObjRecord->bsonObj); // TODO
                     bsonObjRecord->flushed = true;
                 }
+            }
+        }
+    }
+
+    std::list<string> InMemoryRegistry::filterFlushed(const std::list<string> &removedDocumentIds) {
+
+        log() << "--> InMemoryRegistry::filterFlushed";
+
+        std::list<string> flushed;
+
+        for (string id : removedDocumentIds) {
+            filterFlushedUpdatedRecord(flushed, id);
+
+            filterFlushedInsertedRecord(flushed, id);
+        }
+
+        return flushed;
+    }
+
+    void InMemoryRegistry::filterFlushedUpdatedRecord(std::list<string> &flushed, const string &id) const {
+        std::map<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char>>, std::vector<mongo::Record *>>::const_iterator iterator = updated.find(id);
+        if (iterator == updated.end()) {
+            std::vector<Record *> updatedList = iterator->second;
+
+            if (std::all_of(updatedList.begin(), updatedList.end(),
+                            [](Record *record) { return record->flushed; })) {
+                log() << "\t" << "document " << id << " has already bean flushed";
+                flushed.push_back(id);
+            }
+        }
+    }
+
+    void InMemoryRegistry::filterFlushedInsertedRecord(std::list<string> &flushed, const string &id) const {
+        std::map<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char>>, mongo::Record *>::const_iterator iterator = inserted.find(id);
+        if (iterator == inserted.end()) {
+            Record *record = iterator->second;
+
+            if (record->flushed) {
+                log() << "\t" << "document " << id << " has already bean flushed";
+                flushed.push_back(id);
             }
         }
     }

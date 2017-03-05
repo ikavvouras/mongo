@@ -64,6 +64,8 @@ namespace mongo {
 
         bool isRegistryEnabled();
 
+        bool isFlusingRegistry();
+
         Registry *getRegistry();
 
         void start(MongoServerCredentials targetCredentials, MongoServerCredentials hostCredentials,
@@ -76,6 +78,8 @@ namespace mongo {
         bool hasEnabledForwading();
 
         void forwardCommand(const rpc::RequestInterface &request, rpc::ReplyBuilderInterface *replyBuilder);
+
+        void flushDeletedData(const std::list<string> &removedDocumentIds);
     };
 
 }

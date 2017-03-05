@@ -133,8 +133,8 @@ namespace {
     mongo::Message &runFindCommandInRegisty(mongo::Message &response, const mongo::Registry *registry,
                                                 rpc::ReplyBuilderInterface &localReplyBuilder, BSONObj &resultBsonObj);
 
-    void runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder,
-                                    const rpc::RequestInterface &request, Registry *registry);
+    std::list<string> runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder,
+                                                 const rpc::RequestInterface &request, Registry *registry);
 
     void runInsertCommandInRegistry(rpc::ReplyBuilderInterface &replyBuilder, const rpc::RequestInterface &request,
                                     Registry *registry);
@@ -269,7 +269,12 @@ void receivedCommand(OperationContext* txn,
         if (req->getCommandName() == "update" && migrator->isRegistryEnabled()) {
             runUpdateIntoRegistry(txn, builder, request, migrator->getRegistry());
         } else if (req->getCommandName() == "delete" && migrator->isRegistryEnabled()) {
-            runRemoveCommandInRegistry(txn, builder, request, migrator->getRegistry());
+            const std::list<string> &removedDocumentIds = runRemoveCommandInRegistry(txn, builder, request, migrator->getRegistry());
+
+            if (migrator->isFlusingRegistry()) {
+                migrator->flushDeletedData(removedDocumentIds);
+            }
+
         } else if (req->getCommandName() == "insert" && migrator->isRegistryEnabled()) {
             runInsertCommandInRegistry(builder, request, migrator->getRegistry());
         } else {
@@ -392,13 +397,14 @@ void runInsertCommandInRegistry(rpc::ReplyBuilderInterface &replyBuilder, const 
     replyBuilder.setMetadata(metadataBob.done());
 }
 
-void runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder,
-                                const rpc::RequestInterface &request, Registry *registry) {
+std::list<string> runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder,
+                                             const rpc::RequestInterface &request, Registry *registry) {
     const string &dbName = request.getDatabase().toString();
     const StringData &collection = getCollectionFromRequest(request, "delete");
 
     // TODO take into account `limit` and `ordered` { delete: "test_collection", deletes: [ { q: { x: 2.0 }, limit: 0.0 } ], ordered: true }
 
+    std::list<string> removedDocumentIds;
     int nRemoved = 0;
 
     for (BSONElement deletedElement : request.getCommandArgs().getField("deletes").Array()) {
@@ -409,11 +415,16 @@ void runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBuilderInterfac
 
         log() << "find called";
 
+
+
         for (BSONElement removingRecord : findResults.getObjectField("cursor").getField("firstBatch").Array()) {
             const string &id = getId(removingRecord);
             log() << "removing( " << id << " ) :: " << removingRecord.toString(false);
 
             registry->remove(id);
+
+            removedDocumentIds.push_back(id);
+
             ++nRemoved;
         }
 
@@ -430,6 +441,8 @@ void runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBuilderInterfac
 
     BSONObjBuilder metadataBob; // TODO check metadata in replication/sharding
     replyBuilder.setMetadata(metadataBob.done());
+
+    return removedDocumentIds;
 }
 
 void runUpdateIntoRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder,

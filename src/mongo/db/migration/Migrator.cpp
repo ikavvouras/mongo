@@ -37,7 +37,7 @@ namespace mongo {
     }
 
     void Migrator::flushRegistry() {
-        log() << "flashing registry...";
+        log() << "flushing registry...";
 
         this->status = FLUSHING_REGISTRY;
 
@@ -144,12 +144,12 @@ namespace mongo {
             enableRegistry();
         }
 
-        return status == MIGRATING_DATA/* || status == FLUSHING_REGISTRY*/;
+        return status == MIGRATING_DATA || status == FLUSHING_REGISTRY;
     }
 
     void Migrator::flushDeletedData() {
 
-        log() << "\t" << "flashing deleted data";
+        log() << "\t" << "flushing deleted data";
 
         HostAndPort hostAndPort(targetCredentials.host, targetCredentials.port);
         ScopedDbConnection connection(hostAndPort.toString());
@@ -159,14 +159,27 @@ namespace mongo {
         connection.done();
     }
 
+    void Migrator::flushDeletedData(const std::list<string> &removedDocumentIds) {
+        const std::list<string> & flushedDeletedData = registry->filterFlushed(removedDocumentIds);
+
+        HostAndPort hostAndPort(targetCredentials.host, targetCredentials.port);
+        ScopedDbConnection connection(hostAndPort.toString());
+
+        for (string id : flushedDeletedData) {
+            registry->flushDeletedRecord(connection, id);
+        }
+
+        connection.done();
+    }
+
     void Migrator::flushInsertedData() {
-        log() << "\t" << "flashing inserted data";
+        log() << "\t" << "flushing inserted data";
 
         HostAndPort hostAndPort(targetCredentials.host, targetCredentials.port);
         ScopedDbConnection connection(hostAndPort.toString());
 
         for (BSONObj bsonObj : registry->getInserted()) {
-            log() << "\t\t" << "flashing " << bsonObj.toString();
+            log() << "\t\t" << "flushing " << bsonObj.toString();
             connection.get()->insert("test_db.test_collection", bsonObj); // TODO
         }
 
@@ -174,13 +187,17 @@ namespace mongo {
     }
 
     void Migrator::flushUpdatedData() {
-        log() << "\t" << "flashing updated data";
+        log() << "\t" << "flushing updated data";
 
         HostAndPort hostAndPort(targetCredentials.host, targetCredentials.port);
         ScopedDbConnection connection(hostAndPort.toString());
 
         registry->flushUpdatedData(connection);
         connection.done();
+    }
+
+    bool Migrator::isFlusingRegistry() {
+        return status == FLUSHING_REGISTRY;
     }
 
 }
