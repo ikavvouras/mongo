@@ -14,7 +14,8 @@
 
 namespace mongo {
 
-    void Migrator::start(MongoServerCredentials targetCredentials, MongoServerCredentials hostCredentials, OperationContext *txn) {
+    void Migrator::start(MongoServerCredentials targetCredentials, MongoServerCredentials hostCredentials,
+                         OperationContext *txn) {
 //        enableRegistry(); TODO uncomment
         isRegistryEnabled(); // TODO remove after uncommenting previous line
 
@@ -157,13 +158,18 @@ namespace mongo {
         log() << "registry enabled: " << (registry != NULL);
         registry->flushDeletedData(connection);
         connection.done();
+
+        flushStatus.insert(FLUSHED_DELETIONS);
     }
 
     void Migrator::flushDeletedData(const std::list<string> &removedDocumentIds) {
-        const std::list<string> & flushedDeletedData = registry->filterFlushed(removedDocumentIds);
 
         HostAndPort hostAndPort(targetCredentials.host, targetCredentials.port);
         ScopedDbConnection connection(hostAndPort.toString());
+
+        const std::list<string> &flushedDeletedData = flushStatusesContains(FLUSHED_DELETIONS)
+                                                      ? removedDocumentIds
+                                                      : registry->filterFlushed(removedDocumentIds);
 
         for (string id : flushedDeletedData) {
             registry->flushDeletedRecord(connection, id);
@@ -184,6 +190,8 @@ namespace mongo {
         }
 
         connection.done();
+
+        flushStatus.insert(FLUSHED_INSERTIONS);
     }
 
     void Migrator::flushUpdatedData() {
@@ -194,10 +202,20 @@ namespace mongo {
 
         registry->flushUpdatedData(connection);
         connection.done();
+
+        flushStatus.insert(FLUSHED_UPDATES);
     }
 
     bool Migrator::isFlusingRegistry() {
         return status == FLUSHING_REGISTRY;
+    }
+
+    const std::set<MigrationFlushStatus> &Migrator::getFlushStatus() const {
+        return flushStatus;
+    }
+
+    bool Migrator::flushStatusesContains(const MigrationFlushStatus &x) const {
+        return flushStatus.find(x) != flushStatus.end();
     }
 
 }

@@ -3,6 +3,7 @@
 //
 
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -28,6 +29,12 @@ namespace mongo {
         DONE
     };
 
+    enum MigrationFlushStatus {
+        FLUSHED_DELETIONS,
+        FLUSHED_INSERTIONS,
+        FLUSHED_UPDATES
+    };
+
     class Migrator {
     private:
         Registry *registry = NULL;
@@ -36,6 +43,7 @@ namespace mongo {
 
         MongoServerCredentials targetCredentials;
 
+        std::set<MigrationFlushStatus> flushStatus;
 
         void enableRegistry();
 
@@ -46,6 +54,8 @@ namespace mongo {
         void flushInsertedData();
 
         void flushUpdatedData();
+
+        bool flushStatusesContains(const MigrationFlushStatus &x) const;
 
     public:
         // TODO make private
@@ -80,6 +90,8 @@ namespace mongo {
         void forwardCommand(const rpc::RequestInterface &request, rpc::ReplyBuilderInterface *replyBuilder);
 
         void flushDeletedData(const std::list<string> &removedDocumentIds);
+
+        const std::set<MigrationFlushStatus> &getFlushStatus() const;
     };
 
 }
