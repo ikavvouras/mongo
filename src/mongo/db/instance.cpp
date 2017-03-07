@@ -450,6 +450,7 @@ void runUpdateIntoRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &re
     const string &dbName = request.getDatabase().toString();
     const StringData &collection = getCollectionFromRequest(request, "update");
 
+    int nModified = 0;
     for (BSONElement updatesElement : request.getCommandArgs().getField("updates").Array()) {
         const BSONObj &filterElement = updatesElement.Obj().getObjectField("q");
         const BSONObj &update = updatesElement.Obj().getObjectField("u");
@@ -464,6 +465,8 @@ void runUpdateIntoRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &re
             log() << "updating( " << id << " ) :: " << updatingRecord.toString(false);
 
             registry->update(id, new BSONObj(update.copy()));
+
+            ++nModified;
         }
 
     }
@@ -473,7 +476,9 @@ void runUpdateIntoRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &re
     size_t bytesToReserve = 0u;
     BufBuilder &localBufBuilder = replyBuilder.getInPlaceReplyBuilder(bytesToReserve);
     BSONObjBuilder localBsonObjBuilder(localBufBuilder);
-//            resultDocument.toBson(&localBsonObjBuilder); TODO add data
+    localBsonObjBuilder.appendNumber("nModified", nModified);
+    localBsonObjBuilder.appendNumber("n", nModified);
+    localBsonObjBuilder.appendNumber("ok", 1);
     localBsonObjBuilder.doneFast();
 
     BSONObjBuilder metadataBob; // TODO check metadata in replication/sharding
