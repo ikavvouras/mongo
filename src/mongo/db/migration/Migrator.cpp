@@ -172,7 +172,7 @@ namespace mongo {
                                                       : registry->filterFlushed(removedDocumentIds);
 
         for (string id : flushedDeletedData) {
-            registry->flushDeletedRecord(connection, id);
+            registry->flushDeletedRecord(connection, id); // TODO check/inform about flushed
         }
 
         connection.done();
@@ -204,6 +204,27 @@ namespace mongo {
         connection.done();
 
         flushStatus.insert(FLUSHED_UPDATES);
+    }
+
+    void Migrator::flushUpdatedData(const std::map<string, BSONObj *> updated) {
+        HostAndPort hostAndPort(targetCredentials.host, targetCredentials.port);
+        ScopedDbConnection connection(hostAndPort.toString());
+
+        std::list<string> updatedDocumentIds;
+        std::transform(
+                updated.begin(), updated.end(),
+                std::back_inserter(updatedDocumentIds),
+                [](const std::map<string, BSONObj *>::value_type &pair) { return pair.first; });
+
+        const std::list<string> &flushedDeletedData = flushStatusesContains(FLUSHED_UPDATES)
+                                                      ? updatedDocumentIds
+                                                      : registry->filterFlushed(updatedDocumentIds);
+
+        for (string id : flushedDeletedData) {
+            registry->flushUpdatedRecord(connection, id, updated.find(id)->second); // TODO check/inform about flushed
+        }
+
+        connection.done();
     }
 
     bool Migrator::isFlusingRegistry() {

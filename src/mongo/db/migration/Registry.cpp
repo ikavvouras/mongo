@@ -157,15 +157,12 @@ namespace mongo {
         for (const std::pair<const string, std::vector<Record *>> &pair : updated) {
 
             string id = pair.first;
-            Query query = QUERY("_id" << OID(id));
 
             for (Record *bsonObjRecord : pair.second) {
 
                 if (!bsonObjRecord->flushed) {
-                    log() << "flushUpdatedData :: query : " << query.toString()
-                          << " with " << bsonObjRecord->bsonObj->toString();
+                    flushUpdatedBsonObj(connection, id, *bsonObjRecord->bsonObj);
 
-                    connection.get()->update("test_db.test_collection", query, *bsonObjRecord->bsonObj); // TODO
                     bsonObjRecord->flushed = true;
                 }
             }
@@ -223,5 +220,17 @@ namespace mongo {
     MutableDocument *createMutableDocument(const BSONObj &bsonObj) {
         Document document(bsonObj);
         return new MutableDocument(document);
+    }
+
+    void InMemoryRegistry::flushUpdatedRecord(ScopedDbConnection &connection, string id, BSONObj *update) {
+        flushUpdatedBsonObj(connection, id, *update);
+    }
+
+    void InMemoryRegistry::flushUpdatedBsonObj(ScopedDbConnection &connection, const string &id, const BSONObj &obj) const {
+        Query query = QUERY("_id" << OID(id));
+        log() << "flushUpdatedBsonObj :: query : " << query.toString()
+              << " with " << obj.toString();
+        connection.get()->update("test_db.test_collection", query, obj); // TODO
+
     }
 }

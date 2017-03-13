@@ -127,8 +127,8 @@ namespace {
 
     const StringData getCollectionFromRequest(const rpc::RequestInterface &request, const char *name);
 
-    void runUpdateIntoRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder,
-                               const rpc::RequestInterface &request, Registry *registry);
+    std::map<string, BSONObj *> runUpdateIntoRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder,
+                                                      const rpc::RequestInterface &request, Registry *registry);
 
     mongo::Message &runFindCommandInRegisty(mongo::Message &response, const mongo::Registry *registry,
                                                 rpc::ReplyBuilderInterface &localReplyBuilder, BSONObj &resultBsonObj);
@@ -267,7 +267,12 @@ void receivedCommand(OperationContext* txn,
                 nToReturn == 1 || nToReturn == -1);
 
         if (req->getCommandName() == "update" && migrator->isRegistryEnabled()) {
-            runUpdateIntoRegistry(txn, builder, request, migrator->getRegistry());
+            const std::map<string, BSONObj *> &updated = runUpdateIntoRegistry(txn, builder, request, migrator->getRegistry());
+
+            if (migrator->isFlusingRegistry()) {
+                migrator->flushUpdatedData(updated);
+            }
+
         } else if (req->getCommandName() == "delete" && migrator->isRegistryEnabled()) {
             const std::list<string> &removedDocumentIds = runRemoveCommandInRegistry(txn, builder, request, migrator->getRegistry());
 
@@ -445,12 +450,13 @@ std::list<string> runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBu
     return removedDocumentIds;
 }
 
-void runUpdateIntoRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder,
-                           const rpc::RequestInterface &request, Registry *registry) {
+std::map<string, BSONObj *> runUpdateIntoRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder,
+                                                  const rpc::RequestInterface &request, Registry *registry) {
     const string &dbName = request.getDatabase().toString();
     const StringData &collection = getCollectionFromRequest(request, "update");
 
-    int nModified = 0;
+    std::map<string, BSONObj *> updated;
+
     for (BSONElement updatesElement : request.getCommandArgs().getField("updates").Array()) {
         const BSONObj &filterElement = updatesElement.Obj().getObjectField("q");
         const BSONObj &update = updatesElement.Obj().getObjectField("u");
@@ -464,25 +470,28 @@ void runUpdateIntoRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &re
             const string &id = getId(updatingRecord);
             log() << "updating( " << id << " ) :: " << updatingRecord.toString(false);
 
-            registry->update(id, new BSONObj(update.copy()));
+            BSONObj *updateCopy = new BSONObj(update.copy());
+            registry->update(id, updateCopy);
 
-            ++nModified;
+            updated.insert(std::make_pair(id, updateCopy));
+
         }
 
     }
-
 
     log() << "CommandReplyBuilder ---> ";
     size_t bytesToReserve = 0u;
     BufBuilder &localBufBuilder = replyBuilder.getInPlaceReplyBuilder(bytesToReserve);
     BSONObjBuilder localBsonObjBuilder(localBufBuilder);
-    localBsonObjBuilder.appendNumber("nModified", nModified);
-    localBsonObjBuilder.appendNumber("n", nModified);
+    localBsonObjBuilder.appendNumber("nModified", updated.size());
+    localBsonObjBuilder.appendNumber("n", updated.size());
     localBsonObjBuilder.appendNumber("ok", 1);
     localBsonObjBuilder.doneFast();
 
     BSONObjBuilder metadataBob; // TODO check metadata in replication/sharding
     replyBuilder.setMetadata(metadataBob.done());
+
+    return updated;
 }
 
 mongo::Message &runFindCommandInRegisty(mongo::Message &response, const mongo::Registry *registry,

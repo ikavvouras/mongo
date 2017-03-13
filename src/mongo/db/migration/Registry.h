@@ -52,6 +52,8 @@ namespace mongo {
         virtual void flushUpdatedData(mongo::ScopedDbConnection &connection) = 0;
 
         virtual std::list<string> filterFlushed(const std::list<string> &removedDocumentIds) = 0;
+
+        virtual void flushUpdatedRecord(ScopedDbConnection &connection, string id, BSONObj *update)= 0;
     };
 
     class InMemoryRegistry : public Registry {
@@ -91,6 +93,10 @@ namespace mongo {
         void flushDeletedRecord(ScopedDbConnection &connection, const string &id) const;
 
         std::list<string> filterFlushed(const std::list<string> &removedDocumentIds);
+
+        void flushUpdatedRecord(ScopedDbConnection &connection, string id, BSONObj *update);
+
+        void flushUpdatedBsonObj(ScopedDbConnection &connection, const string &id, const BSONObj &obj) const;
     };
 
 }

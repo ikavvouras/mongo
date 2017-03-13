@@ -91,6 +91,8 @@ namespace mongo {
 
         void flushDeletedData(const std::list<string> &removedDocumentIds);
 
+        void flushUpdatedData(const std::map<string, BSONObj *> updated);
+
         const std::set<MigrationFlushStatus> &getFlushStatus() const;
     };
 
