@@ -107,7 +107,7 @@ namespace mongo {
         for (BSONElement field : update->getObjectField("$set")) {
 
             const Value &val = Value(field);
-            log() << "updating " << field.toString();
+            log() << "InMemoryRegistry::updateFields : updating " << field.toString();
 
             mutableUpdate->setField(field.fieldNameStringData(), val);
         }
@@ -157,15 +157,31 @@ namespace mongo {
         for (const std::pair<const string, std::vector<Record *>> &pair : updated) {
 
             string id = pair.first;
+            const vector<Record *> &updateRecords = pair.second;
 
-            for (Record *bsonObjRecord : pair.second) {
+            for (std::size_t j = 0; j != updateRecords.size(); ++j) {
 
+                log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+                log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+                log() << "~~~~~~~~~~~~~~~ sleeping for 5\" ~~~~~~~~~~~~~~~~";
+                log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+                log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+                sleep(5);
+
+                Record *bsonObjRecord = updateRecords[j];
                 if (!bsonObjRecord->flushed) {
-                    flushUpdatedBsonObj(connection, id, *bsonObjRecord->bsonObj);
+                    flushUpdatedBsonObj(connection, id, *(bsonObjRecord->bsonObj));
 
                     bsonObjRecord->flushed = true;
                 }
+                log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+                log() << "~~~~~~~~~~~~~~ end of loop ~~~~~~~~~~~~~~~~";
+                log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+                log() << "pair->second.size = " << pair.second.size();
+
             }
+
+            log() << "size=" << updateRecords.size();
         }
     }
 
@@ -185,25 +201,27 @@ namespace mongo {
     }
 
     void InMemoryRegistry::filterFlushedUpdatedRecord(std::list<string> &flushed, const string &id) const {
-        std::map<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char>>, std::vector<mongo::Record *>>::const_iterator iterator = updated.find(id);
-        if (iterator == updated.end()) {
+        log() << "InMemoryRegistry::filterFlushedUpdatedRecord( " << id << " )";
+
+        std::map<string, std::vector<mongo::Record *>>::const_iterator iterator = updated.find(id);
+        if (iterator != updated.end()) {
             std::vector<Record *> updatedList = iterator->second;
 
             if (std::all_of(updatedList.begin(), updatedList.end(),
                             [](Record *record) { return record->flushed; })) {
-                log() << "\t" << "document " << id << " has already bean flushed";
+                log() << "\t" << "document " << id << " updates has already bean flushed";
                 flushed.push_back(id);
             }
         }
     }
 
     void InMemoryRegistry::filterFlushedInsertedRecord(std::list<string> &flushed, const string &id) const {
-        std::map<std::__cxx11::basic_string<char, std::char_traits<char>, std::allocator<char>>, mongo::Record *>::const_iterator iterator = inserted.find(id);
-        if (iterator == inserted.end()) {
+        std::map<string, mongo::Record *>::const_iterator iterator = inserted.find(id);
+        if (iterator != inserted.end()) {
             Record *record = iterator->second;
 
             if (record->flushed) {
-                log() << "\t" << "document " << id << " has already bean flushed";
+                log() << "\t" << "document " << id << " insertions has already bean flushed";
                 flushed.push_back(id);
             }
         }
@@ -226,7 +244,9 @@ namespace mongo {
         flushUpdatedBsonObj(connection, id, *update);
     }
 
-    void InMemoryRegistry::flushUpdatedBsonObj(ScopedDbConnection &connection, const string &id, const BSONObj &obj) const {
+    void
+    InMemoryRegistry::flushUpdatedBsonObj(ScopedDbConnection &connection, const string &id, const BSONObj &obj) const {
+        log() << "InMemoryRegistry::flushUpdatedBsonObj";
         Query query = QUERY("_id" << OID(id));
         log() << "flushUpdatedBsonObj :: query : " << query.toString()
               << " with " << obj.toString();
