@@ -216,11 +216,11 @@ namespace mongo {
                 std::back_inserter(updatedDocumentIds),
                 [](const std::map<string, BSONObj *>::value_type &pair) { return pair.first; });
 
-        const std::list<string> &flushedDeletedData = flushStatusesContains(FLUSHED_UPDATES)
+        const std::list<string> &flushedUpdatedRecordIds = flushStatusesContains(FLUSHED_UPDATES)
                                                       ? updatedDocumentIds
                                                       : registry->filterFlushed(updatedDocumentIds);
 
-        for (string id : flushedDeletedData) {
+        for (string id : flushedUpdatedRecordIds) {
             registry->flushUpdatedRecord(connection, id, updated.find(id)->second); // TODO check/inform about flushed
         }
 
