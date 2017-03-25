@@ -282,6 +282,11 @@ void receivedCommand(OperationContext* txn,
 
         } else if (req->getCommandName() == "insert" && migrator->isRegistryEnabled()) {
             runInsertCommandInRegistry(builder, request, migrator->getRegistry());
+
+            if (migrator->isFlusingRegistry()) {
+                migrator->flushInsertedData(request.getCommandArgs().getField("documents").Array());
+            }
+
         } else {
             runCommands(txn, request, &builder);
         }
@@ -386,16 +391,19 @@ void runInsertCommandInRegistry(rpc::ReplyBuilderInterface &replyBuilder, const 
 //    const string &dbName = request.getDatabase().toString(); TODO add dbName information
 //    const StringData &collection = getCollectionFromRequest(request, "insert"); TODO add collection information
 
+    int nInserted = 0;
     for (BSONElement newDocument : request.getCommandArgs().getField("documents").Array()) {
         registry->insert(new BSONObj(newDocument.Obj().copy()));
+        ++nInserted;
     }
-
 
     log() << "CommandReplyBuilder ---> ";
     size_t bytesToReserve = 0u;
     BufBuilder &localBufBuilder = replyBuilder.getInPlaceReplyBuilder(bytesToReserve);
     BSONObjBuilder localBsonObjBuilder(localBufBuilder);
-    //            resultDocument.toBson(&localBsonObjBuilder); TODO add data
+    localBsonObjBuilder.appendNumber("nInserted", nInserted);
+    localBsonObjBuilder.appendNumber("n", nInserted);
+    localBsonObjBuilder.appendNumber("ok", 1);
     localBsonObjBuilder.doneFast();
 
     BSONObjBuilder metadataBob; // TODO check metadata in replication/sharding

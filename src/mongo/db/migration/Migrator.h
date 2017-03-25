@@ -94,6 +94,10 @@ namespace mongo {
         void flushUpdatedData(const std::map<string, BSONObj *> updated);
 
         const std::set<MigrationFlushStatus> &getFlushStatus() const;
+
+        void flushInsertedData(const std::vector<BSONElement> &insertedData);
+
+        void flushInsertedRecord(ScopedDbConnection &connection, const BSONObj &bsonObj) const;
     };
 
 }

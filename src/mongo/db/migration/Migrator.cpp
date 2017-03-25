@@ -131,7 +131,7 @@ namespace mongo {
     }
 
     bool Migrator::hasEnabledForwading() {
-        return status != MIGRATING_DATA;
+        return status == ENABLED_FORWARDING;
     }
 
     Registry *Migrator::getRegistry() {
@@ -185,13 +185,42 @@ namespace mongo {
         ScopedDbConnection connection(hostAndPort.toString());
 
         for (BSONObj bsonObj : registry->getInserted()) {
-            log() << "\t\t" << "flushing " << bsonObj.toString();
-            connection.get()->insert("test_db.test_collection", bsonObj); // TODO
+            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+            log() << "~~~~~~~~~~~~~~~ sleeping for 5\" ~~~~~~~~~~~~~~~~";
+            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+            sleep(5);
+            flushInsertedRecord(connection, bsonObj);
         }
 
         connection.done();
 
         flushStatus.insert(FLUSHED_INSERTIONS);
+    }
+
+    void Migrator::flushInsertedData(const std::vector<BSONElement> &insertedData) {
+
+        if (flushStatusesContains(FLUSHED_INSERTIONS)) {
+
+            HostAndPort hostAndPort(targetCredentials.host, targetCredentials.port);
+            ScopedDbConnection connection(hostAndPort.toString());
+            for (BSONElement record : insertedData) {
+                const BSONObj &obj = record.Obj();
+
+                log() << "flushInsertedBsonObj :: query : " << obj;
+
+                flushInsertedRecord(connection, obj);
+            }
+            connection.done();
+
+        }
+
+    }
+
+    void Migrator::flushInsertedRecord(ScopedDbConnection &connection, const BSONObj &bsonObj) const {
+        log() << "\t\t" << "flushing " << bsonObj.toString();
+        connection.get()->insert("test_db.test_collection", bsonObj); // TODO
     }
 
     void Migrator::flushUpdatedData() {
@@ -217,8 +246,8 @@ namespace mongo {
                 [](const std::map<string, BSONObj *>::value_type &pair) { return pair.first; });
 
         const std::list<string> &flushedUpdatedRecordIds = flushStatusesContains(FLUSHED_UPDATES)
-                                                      ? updatedDocumentIds
-                                                      : registry->filterFlushed(updatedDocumentIds);
+                                                           ? updatedDocumentIds
+                                                           : registry->filterFlushed(updatedDocumentIds);
 
         for (string id : flushedUpdatedRecordIds) {
             registry->flushUpdatedRecord(connection, id, updated.find(id)->second); // TODO check/inform about flushed

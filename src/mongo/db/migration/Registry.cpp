@@ -244,8 +244,7 @@ namespace mongo {
         flushUpdatedBsonObj(connection, id, *update);
     }
 
-    void
-    InMemoryRegistry::flushUpdatedBsonObj(ScopedDbConnection &connection, const string &id, const BSONObj &obj) const {
+    void InMemoryRegistry::flushUpdatedBsonObj(ScopedDbConnection &connection, const string &id, const BSONObj &obj) const {
         log() << "InMemoryRegistry::flushUpdatedBsonObj";
         Query query = QUERY("_id" << OID(id));
         log() << "flushUpdatedBsonObj :: query : " << query.toString()
