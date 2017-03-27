@@ -120,7 +120,8 @@ namespace {
     static const StringData CURSOR_FIELD_NAME = "cursor";
     static const StringData FIRST_BATCH_FIELD_NAME = "firstBatch";
 
-    Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Registry *registry);
+    Document
+    enrichFindResultsFromRegistry(const BSONObj &filterBsonObj, const BSONObj &resultBsonObj, const Registry *registry);
 
     const BSONObj find(OperationContext *txn, const string &dbName, const StringData &collection,
                         const BSONObj &filterElement,const Registry *registry);
@@ -131,13 +132,16 @@ namespace {
                                                       const rpc::RequestInterface &request, Registry *registry);
 
     mongo::Message &runFindCommandInRegisty(mongo::Message &response, const mongo::Registry *registry,
-                                                rpc::ReplyBuilderInterface &localReplyBuilder, BSONObj &resultBsonObj);
+                                            rpc::ReplyBuilderInterface &localReplyBuilder, const BSONObj &filter,
+                                            BSONObj &resultBsonObj);
 
     std::list<string> runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder,
                                                  const rpc::RequestInterface &request, Registry *registry);
 
     void runInsertCommandInRegistry(rpc::ReplyBuilderInterface &replyBuilder, const rpc::RequestInterface &request,
                                     Registry *registry);
+
+    bool containsAll(const BSONObj &inserted, const BSONObj &filterBson);
 
     // for diaglog
 inline void opread(Message& m) {
@@ -302,7 +306,8 @@ void receivedCommand(OperationContext* txn,
         rpc::LegacyReplyBuilder localBuilder{};
         QueryResult::View msg = response.buf();
         BSONObj resultBsonObj(msg.data());
-        runFindCommandInRegisty(response, migrator->getRegistry(), localBuilder, resultBsonObj);
+        runFindCommandInRegisty(response, migrator->getRegistry(), localBuilder,
+                                req->getCommandArgs().getObjectField("filter"), resultBsonObj);
 
         // assert -- TODO remove the following lines
         QueryResult::View msg2 = response.buf();
@@ -372,7 +377,8 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
         rpc::CommandReplyBuilder localReplyBuilder{};
         MsgData::View msg = response.buf();
         BSONObj resultBsonObj(msg.data());
-        runFindCommandInRegisty(response, migrator->getRegistry(), localReplyBuilder, resultBsonObj);
+        runFindCommandInRegisty(response, migrator->getRegistry(), localReplyBuilder,
+                                req->getCommandArgs().getObjectField("filter"), resultBsonObj);
 
         // assert -- TODO remove the following lines
         MsgData::View msg2 = response.buf();
@@ -503,8 +509,8 @@ std::map<string, BSONObj *> runUpdateIntoRegistry(OperationContext *txn, rpc::Re
 }
 
 mongo::Message &runFindCommandInRegisty(mongo::Message &response, const mongo::Registry *registry,
-                                        rpc::ReplyBuilderInterface &localReplyBuilder, BSONObj &resultBsonObj) {
-    Document resultDocument = enrichFindResultsFromRegistry(resultBsonObj, registry);
+                                        rpc::ReplyBuilderInterface &localReplyBuilder, const BSONObj &filter, BSONObj &resultBsonObj) {
+    Document resultDocument = enrichFindResultsFromRegistry(filter, resultBsonObj, registry);
 
     log() << "CommandReplyBuilder ---> ";
     size_t bytesToReserve = 0u;
@@ -526,7 +532,7 @@ const StringData getCollectionFromRequest(const rpc::RequestInterface &request, 
     return request.getCommandArgs().getField(name).valueStringData();
 }
 
-Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Registry *registry) {
+Document enrichFindResultsFromRegistry(const BSONObj &filterBson, const BSONObj &resultBsonObj, const Registry *registry) {
     log() << "resultBsonObj2 " << resultBsonObj.toString();
 
     BSONObj cursorField = resultBsonObj.getObjectField(CURSOR_FIELD_NAME);
@@ -534,8 +540,10 @@ Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Regis
 
     BSONArrayBuilder resultsArrayBuilder;
 
-    for (BSONObj &inserted : registry->getInserted()) {
-        resultsArrayBuilder.append(inserted);
+    for (const BSONObj &inserted : registry->getInserted()) {
+        if (containsAll(inserted, filterBson)) {
+            resultsArrayBuilder.append(inserted);
+        }
     }
 
     for (BSONElement actualElement : firstBatchElement.Obj()) {
@@ -569,6 +577,15 @@ Document enrichFindResultsFromRegistry(const BSONObj &resultBsonObj, const Regis
     return resultDocument;
 }
 
+    bool containsAll(const BSONObj &inserted, const BSONObj &filterBson) {
+        for (BSONElement field : filterBson) {
+            if (!inserted.getField(field.fieldName()).binaryEqualValues(field)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
 const BSONObj find(OperationContext *txn, const string &dbName, const StringData &collection, const BSONObj &filterElement,
                         const Registry *registry) {
 
@@ -585,7 +602,7 @@ const BSONObj find(OperationContext *txn, const string &dbName, const StringData
     log() << inPlaceReplyBob.asTempObj().toString();
 
     const BSONObj &candidateRecords = inPlaceReplyBob.done();
-    const Document &enrichedFindResults = enrichFindResultsFromRegistry(candidateRecords, registry);
+    const Document &enrichedFindResults = enrichFindResultsFromRegistry(filterElement, candidateRecords, registry);
     return enrichedFindResults.toBson();
 }
 

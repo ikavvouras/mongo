@@ -184,7 +184,9 @@ namespace mongo {
         HostAndPort hostAndPort(targetCredentials.host, targetCredentials.port);
         ScopedDbConnection connection(hostAndPort.toString());
 
-        for (BSONObj bsonObj : registry->getInserted()) {
+        for (std::size_t i = 0; i < registry->getInserted().size(); ++i) {
+            BSONObj bsonObj = registry->getInserted()[i];
+
             log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
             log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
             log() << "~~~~~~~~~~~~~~~ sleeping for 5\" ~~~~~~~~~~~~~~~~";
@@ -193,10 +195,10 @@ namespace mongo {
             sleep(5);
             flushInsertedRecord(connection, bsonObj);
         }
+        flushStatus.insert(FLUSHED_INSERTIONS);
 
         connection.done();
 
-        flushStatus.insert(FLUSHED_INSERTIONS);
     }
 
     void Migrator::flushInsertedData(const std::vector<BSONElement> &insertedData) {
