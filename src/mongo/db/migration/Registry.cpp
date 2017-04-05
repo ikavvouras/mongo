@@ -132,12 +132,12 @@ namespace mongo {
         log() << "flushing " << removed.size() << " deleted records";
         for (const std::pair<const string, Record *> &pair : removed) {
 
-            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
-            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
-            log() << "~~~~~~~~~~~~~~~ sleeping for 5\" ~~~~~~~~~~~~~~~~";
-            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
-            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
-            sleep(5);
+//            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+//            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+//            log() << "~~~~~~~~~~~~~~~ sleeping for 5\" ~~~~~~~~~~~~~~~~";
+//            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+//            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+//            sleep(5);
 
             string id = pair.first;
 
@@ -161,12 +161,12 @@ namespace mongo {
 
             for (std::size_t j = 0; j != updateRecords.size(); ++j) {
 
-                log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
-                log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
-                log() << "~~~~~~~~~~~~~~~ sleeping for 5\" ~~~~~~~~~~~~~~~~";
-                log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
-                log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
-                sleep(5);
+//                log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+//                log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+//                log() << "~~~~~~~~~~~~~~~ sleeping for 5\" ~~~~~~~~~~~~~~~~";
+//                log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+//                log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+//                sleep(5);
 
                 Record *bsonObjRecord = updateRecords[j];
                 if (!bsonObjRecord->flushed) {
@@ -174,14 +174,9 @@ namespace mongo {
 
                     bsonObjRecord->flushed = true;
                 }
-                log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
-                log() << "~~~~~~~~~~~~~~ end of loop ~~~~~~~~~~~~~~~~";
-                log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
-                log() << "pair->second.size = " << pair.second.size();
-
             }
 
-            log() << "size=" << updateRecords.size();
+            log() << "flushUpdatedData::size=" << updateRecords.size();
         }
     }
 
@@ -207,7 +202,9 @@ namespace mongo {
         if (iterator != updated.end()) {
             std::vector<Record *> updatedList = iterator->second;
 
-            if (std::all_of(updatedList.begin(), updatedList.end(),
+            log() << "updatedList.size: " << updatedList.size();
+
+            if (std::all_of(updatedList.begin(), std::prev(updatedList.end()),
                             [](Record *record) { return record->flushed; })) {
                 log() << "\t" << "document " << id << " updates has already bean flushed";
                 flushed.push_back(id);
@@ -249,7 +246,10 @@ namespace mongo {
         Query query = QUERY("_id" << OID(id));
         log() << "flushUpdatedBsonObj :: query : " << query.toString()
               << " with " << obj.toString();
+        const BSONObj &o = connection.get()->findOne("test_db.test_collection", query);
+        if (o.isEmpty()) {
+            log() << "!!!!!!!!! object not fount in target !!!!!!!!!";
+        }
         connection.get()->update("test_db.test_collection", query, obj); // TODO
-
     }
 }

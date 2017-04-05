@@ -271,25 +271,35 @@ void receivedCommand(OperationContext* txn,
                 nToReturn == 1 || nToReturn == -1);
 
         if (req->getCommandName() == "update" && migrator->isRegistryEnabled()) {
+            migrator->getLock().userLock();
             const std::map<string, BSONObj *> &updated = runUpdateIntoRegistry(txn, builder, request, migrator->getRegistry());
 
             if (migrator->isFlusingRegistry()) {
                 migrator->flushUpdatedData(updated);
             }
+            migrator->getLock().userUnlock();
 
         } else if (req->getCommandName() == "delete" && migrator->isRegistryEnabled()) {
+            migrator->getLock().userLock();
+
             const std::list<string> &removedDocumentIds = runRemoveCommandInRegistry(txn, builder, request, migrator->getRegistry());
 
             if (migrator->isFlusingRegistry()) {
                 migrator->flushDeletedData(removedDocumentIds);
             }
 
+            migrator->getLock().userUnlock();
+
         } else if (req->getCommandName() == "insert" && migrator->isRegistryEnabled()) {
+            migrator->getLock().userLock();
+
             runInsertCommandInRegistry(builder, request, migrator->getRegistry());
 
             if (migrator->isFlusingRegistry()) {
                 migrator->flushInsertedData(request.getCommandArgs().getField("documents").Array());
             }
+
+            migrator->getLock().userUnlock();
 
         } else {
             runCommands(txn, request, &builder);

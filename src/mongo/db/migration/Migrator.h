@@ -7,6 +7,9 @@
 #include <string>
 #include <vector>
 
+#include <mutex>              // std::mutex, std::unique_lock
+#include <condition_variable> // std::condition_variable
+
 #include "mongo/db/migration/Registry.h"
 #include "mongo/db/operation_context.h"
 #include "mongo/rpc/request_interface.h"
@@ -23,6 +26,7 @@ namespace mongo {
     };
 
     enum MigrationStatus {
+        IDLE,
         MIGRATING_DATA,
         FLUSHING_REGISTRY,
         ENABLED_FORWARDING,
@@ -35,17 +39,38 @@ namespace mongo {
         FLUSHED_UPDATES
     };
 
+    /**
+     * multiple users, single admin lock, with priority in the admin lock
+     */
+    class MigratorLock {
+    private:
+        std::mutex mtx;
+        std::condition_variable cv;
+
+        bool admin = false;
+        long readers = 0;
+    public:
+
+        void adminLock();
+
+        void adminUnlock();
+
+        void userLock();
+
+        void userUnlock();
+    };
+
     class Migrator {
     private:
         Registry *registry = NULL;
 
-        MigrationStatus status;
+        MigrationStatus status = IDLE;
 
         MongoServerCredentials targetCredentials;
 
         std::set<MigrationFlushStatus> flushStatus;
 
-        void enableRegistry();
+        MigratorLock lock;
 
         void getLocalDatabases(OperationContext *txn, std::vector<string> &dbs);
 
@@ -58,7 +83,11 @@ namespace mongo {
         bool flushStatusesContains(const MigrationFlushStatus &x) const;
 
     public:
+        MigratorLock &getLock();
+
         // TODO make private
+        void enableRegistry();
+
         void migrateData(MongoServerCredentials targetCredentials, MongoServerCredentials hostCredentials,
                          OperationContext *txn);
 

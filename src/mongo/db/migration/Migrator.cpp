@@ -16,8 +16,7 @@ namespace mongo {
 
     void Migrator::start(MongoServerCredentials targetCredentials, MongoServerCredentials hostCredentials,
                          OperationContext *txn) {
-//        enableRegistry(); TODO uncomment
-        isRegistryEnabled(); // TODO remove after uncommenting previous line
+        enableRegistry();
 
         migrateData(targetCredentials, hostCredentials, txn);
 
@@ -25,7 +24,9 @@ namespace mongo {
 
         enableRequestForwarding();
 
+        lock.adminLock();
         this->status = DONE;
+        lock.adminUnlock();
     }
 
     void Migrator::stop() {
@@ -33,14 +34,20 @@ namespace mongo {
     }
 
     void Migrator::enableRegistry() {
+        lock.adminLock();
+
         this->registry = new mongo::InMemoryRegistry();
         log() << "enabled registry...";
+
+        lock.adminUnlock();
     }
 
     void Migrator::flushRegistry() {
         log() << "flushing registry...";
 
+        lock.adminLock();
         this->status = FLUSHING_REGISTRY;
+        lock.adminUnlock();
 
         flushDeletedData();
 
@@ -53,7 +60,9 @@ namespace mongo {
                                MongoServerCredentials hostCredentials,
                                OperationContext *txn) {
         log() << "migrating data...";
+        lock.adminLock();
         this->status = MIGRATING_DATA;
+        lock.adminUnlock();
 
         this->targetCredentials = targetCredentials;
 
@@ -103,7 +112,9 @@ namespace mongo {
     }
 
     void Migrator::enableRequestForwarding() {
+        lock.adminLock();
         this->status = ENABLED_FORWARDING;
+        lock.adminUnlock();
     }
 
     MigrationStatus Migrator::getStatus() const {
@@ -139,12 +150,6 @@ namespace mongo {
     }
 
     bool Migrator::isRegistryEnabled() {
-        // TODO remove the following lines
-        if (registry == NULL) {
-            log() << " ---------------- should be called only once -----------------";
-            enableRegistry();
-        }
-
         return status == MIGRATING_DATA || status == FLUSHING_REGISTRY;
     }
 
@@ -159,7 +164,9 @@ namespace mongo {
         registry->flushDeletedData(connection);
         connection.done();
 
+        lock.adminLock();
         flushStatus.insert(FLUSHED_DELETIONS);
+        lock.adminUnlock();
     }
 
     void Migrator::flushDeletedData(const std::list<string> &removedDocumentIds) {
@@ -187,15 +194,18 @@ namespace mongo {
         for (std::size_t i = 0; i < registry->getInserted().size(); ++i) {
             BSONObj bsonObj = registry->getInserted()[i];
 
-            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
-            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
-            log() << "~~~~~~~~~~~~~~~ sleeping for 5\" ~~~~~~~~~~~~~~~~";
-            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
-            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
-            sleep(5);
+//            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+//            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+//            log() << "~~~~~~~~~~~~~~~ sleeping for 5\" ~~~~~~~~~~~~~~~~";
+//            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+//            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
+//            sleep(5);
             flushInsertedRecord(connection, bsonObj);
         }
+
+        lock.adminLock();
         flushStatus.insert(FLUSHED_INSERTIONS);
+        lock.adminUnlock();
 
         connection.done();
 
@@ -234,7 +244,9 @@ namespace mongo {
         registry->flushUpdatedData(connection);
         connection.done();
 
+        lock.adminLock();
         flushStatus.insert(FLUSHED_UPDATES);
+        lock.adminUnlock();
     }
 
     void Migrator::flushUpdatedData(const std::map<string, BSONObj *> updated) {
@@ -247,10 +259,12 @@ namespace mongo {
                 std::back_inserter(updatedDocumentIds),
                 [](const std::map<string, BSONObj *>::value_type &pair) { return pair.first; });
 
+        log() << "flushStatusesContains " << flushStatusesContains(FLUSHED_UPDATES);
         const std::list<string> &flushedUpdatedRecordIds = flushStatusesContains(FLUSHED_UPDATES)
                                                            ? updatedDocumentIds
                                                            : registry->filterFlushed(updatedDocumentIds);
 
+        log() << "Migrator::flushUpdatedData flushedUpdatedRecordIds.size(): " << flushedUpdatedRecordIds.size();
         for (string id : flushedUpdatedRecordIds) {
             registry->flushUpdatedRecord(connection, id, updated.find(id)->second); // TODO check/inform about flushed
         }
@@ -270,4 +284,51 @@ namespace mongo {
         return flushStatus.find(x) != flushStatus.end();
     }
 
+    MigratorLock &Migrator::getLock() {
+        return lock;
+    }
+
+    void MigratorLock::adminLock() {
+        std::unique_lock<std::mutex> lock(mtx);
+
+        admin = true; // priority in admin
+
+        while (readers > 0) {
+            cv.wait(lock);
+        }
+
+//        log() << " ---> adminLock";
+    }
+
+    void MigratorLock::adminUnlock() {
+        std::unique_lock<std::mutex> lock(mtx);
+
+        admin = false;
+
+//        log() << " ---> adminUnlock";
+
+        cv.notify_all();
+    }
+
+    void MigratorLock::userLock() {
+        std::unique_lock<std::mutex> lock(mtx);
+        while (admin) {
+            cv.wait(lock);
+        }
+
+        ++readers;
+
+//        log() << " ---> userLock (" << readers << ")";
+
+    }
+
+    void MigratorLock::userUnlock() {
+        std::unique_lock<std::mutex> lock(mtx);
+
+        --readers;
+
+//        log() << " ---> userUnlock (" << readers << ")";
+
+        cv.notify_all();
+    }
 }

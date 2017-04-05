@@ -37,6 +37,9 @@ namespace mongo {
 
             migrator->start(extractTargetMongoServerCredentials(cmdObj), extractHostMongoServerCredentials(cmdObj), txn);
 
+        } else if (action == "enable") {
+            // manual testing
+            Migrator::getInstance()->enableRegistry();
         } else if (action == "status") {
             log() << "status " << Migrator::getInstance()->isRegistryEnabled();
             result.append("status", Migrator::getInstance()->isRegistryEnabled());

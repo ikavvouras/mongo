@@ -1540,7 +1540,6 @@ bool Command::run(OperationContext* txn,
         ON_BLOCK_EXIT([&] { txn->setWriteConcern(oldWC); });
         txn->setWriteConcern(wcResult.getValue());
 
-        log() << "cmd :: " << cmd.toString();
         result = run(txn, db, cmd, 0, errmsg, inPlaceReplyBob);
 
         // Nothing in run() should change the writeConcern.
@@ -1587,8 +1586,6 @@ bool Command::run(OperationContext* txn,
 
     BSONObjBuilder metadataBob;
     appendOpTimeMetadata(txn, request, &metadataBob);
-
-    log() << "metadataBob " << metadataBob.asTempObj().toString();
 
     replyBuilder->setMetadata(metadataBob.done());
 
