@@ -23,10 +23,6 @@ namespace mongo {
         flushRegistry();
 
         enableRequestForwarding();
-
-        lock.adminLock();
-        this->status = DONE;
-        lock.adminUnlock();
     }
 
     void Migrator::stop() {

@@ -329,6 +329,7 @@ void receivedCommand(OperationContext* txn,
 
     dbResponse.response = std::move(response);
     dbResponse.responseToMsgId = responseToMsgId;
+
 }
 
 void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, Message& message) {
@@ -503,7 +504,7 @@ std::map<string, BSONObj *> runUpdateIntoRegistry(OperationContext *txn, rpc::Re
 
     }
 
-    log() << "CommandReplyBuilder ---> ";
+    log() << "runUpdateIntoRegistry : CommandReplyBuilder ---> ";
     size_t bytesToReserve = 0u;
     BufBuilder &localBufBuilder = replyBuilder.getInPlaceReplyBuilder(bytesToReserve);
     BSONObjBuilder localBsonObjBuilder(localBufBuilder);
@@ -1024,10 +1025,16 @@ void assembleResponse(OperationContext* txn,
         .incrementGlobalLatencyStats(
             txn, currentOp.totalTimeMicros(), currentOp.getReadWriteType());
 
-    if (shouldLogOpDebug || debug.executionTimeMicros > logThresholdMs * 1000LL) {
-        Locker::LockerInfo lockerInfo;
-        txn->lockState()->getLockerInfo(&lockerInfo);
-        log() << debug.report(&c, currentOp, lockerInfo.stats);
+    if (!Migrator::getInstance()->isRegistryEnabled()) {
+        // avoid execution-time assertions in registry-enabled status/mode
+//        log() << "executionTimeMicros " << " -- "
+//              << debug.executionTimeMicros << " > " << logThresholdMs << "* 1000LL = " << (debug.executionTimeMicros > logThresholdMs * 1000LL) ;
+
+        if (shouldLogOpDebug || debug.executionTimeMicros > logThresholdMs * 1000LL) {
+            Locker::LockerInfo lockerInfo;
+            txn->lockState()->getLockerInfo(&lockerInfo);
+            log() << debug.report(&c, currentOp, lockerInfo.stats);
+        }
     }
 
     if (currentOp.shouldDBProfile()) {
