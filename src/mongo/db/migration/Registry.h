@@ -23,6 +23,7 @@ namespace mongo {
 
     struct Record {
         BSONObj *bsonObj;
+        string ns;
         string id;
         bool flushed = false;
     };
@@ -31,11 +32,11 @@ namespace mongo {
     public:
         virtual std::vector<BSONObj *> read(const BSONObj &query) = 0;
 
-        virtual BSONObj *insert(BSONObj *object) = 0;
+        virtual BSONObj *insert(BSONObj *object, string ns) = 0;
 
-        virtual BSONObj *update(string id, BSONObj *object) = 0;
+        virtual BSONObj *update(const string &id, BSONObj *object, string ns) = 0;
 
-        virtual void remove(string id) = 0;
+        virtual void remove(string id, string ns) = 0;
 
         virtual bool hasUpdated(const string &id) const = 0;
 
@@ -47,13 +48,13 @@ namespace mongo {
 
         virtual void flushDeletedData(mongo::ScopedDbConnection &connection) = 0;
 
-        virtual void flushDeletedRecord(ScopedDbConnection &connection, const string &id) const = 0;
+        virtual void flushDeletedRecord(ScopedDbConnection &connection, const string &id, string ns) const = 0;
 
         virtual void flushUpdatedData(mongo::ScopedDbConnection &connection) = 0;
 
         virtual std::list<string> filterFlushed(const std::list<string> &removedDocumentIds) = 0;
 
-        virtual void flushUpdatedRecord(ScopedDbConnection &connection, string id, BSONObj *update)= 0;
+        virtual void flushUpdatedRecord(ScopedDbConnection &connection, string id, BSONObj *update, string ns)= 0;
     };
 
     class InMemoryRegistry : public Registry {
@@ -72,11 +73,11 @@ namespace mongo {
     public:
         std::vector<BSONObj *> read(const BSONObj &query);
 
-        BSONObj *insert(BSONObj *object);
+        BSONObj *insert(BSONObj *object, string ns);
 
-        BSONObj *update(string id, BSONObj *object);
+        BSONObj *update(const string &id, BSONObj *object, string ns);
 
-        void remove(string id);
+        void remove(string id, string ns);
 
         bool hasUpdated(const string &id) const;
 
@@ -90,13 +91,13 @@ namespace mongo {
 
         void flushUpdatedData(mongo::ScopedDbConnection &connection);
 
-        void flushDeletedRecord(ScopedDbConnection &connection, const string &id) const;
+        void flushDeletedRecord(ScopedDbConnection &connection, const string &id, string ns) const;
 
         std::list<string> filterFlushed(const std::list<string> &removedDocumentIds);
 
-        void flushUpdatedRecord(ScopedDbConnection &connection, string id, BSONObj *update);
+        void flushUpdatedRecord(ScopedDbConnection &connection, string id, BSONObj *update, string ns);
 
-        void flushUpdatedBsonObj(ScopedDbConnection &connection, const string &id, const BSONObj &obj) const;
+        void flushUpdatedBsonObj(ScopedDbConnection &connection, const string &id, const BSONObj &obj, string ns) const;
     };
 
 }

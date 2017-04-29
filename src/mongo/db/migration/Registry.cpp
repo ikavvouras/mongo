@@ -27,18 +27,20 @@ namespace mongo {
         throw std::runtime_error("Unimplemented operation exception in registry");
     }
 
-    BSONObj *InMemoryRegistry::update(string id, BSONObj *object) {
+    BSONObj *InMemoryRegistry::update(const string &id, BSONObj *object, string ns) {
 
         const std::map<string, std::vector<Record *>>::iterator &iterator = updated.find(id);
         if (iterator == updated.end()) {
             std::vector<Record *> *updates = new std::vector<Record *>();
             Record *record = new Record();
+            record->ns = ns;
             record->bsonObj = object;
             updates->push_back(record);
             updated.insert(std::make_pair(id, *updates));
         } else {
             std::vector<Record *> &updates = iterator->second;
             Record *record = new Record();
+            record->ns = ns;
             record->bsonObj = object;
             updates.push_back(record);
         }
@@ -46,15 +48,16 @@ namespace mongo {
         return object;
     }
 
-    BSONObj *InMemoryRegistry::insert(BSONObj *object) {
+    BSONObj *InMemoryRegistry::insert(BSONObj *object, string ns) {
         Record *record = new Record();
         record->bsonObj = object;
+        record->ns = ns;
         inserted.insert(std::make_pair(getId(*object), record));
 
         return object;
     }
 
-    void InMemoryRegistry::remove(string id) {
+    void InMemoryRegistry::remove(string id, string ns) {
         updated.erase(id);
         inserted.erase(id);
 
@@ -62,6 +65,7 @@ namespace mongo {
 
         Record *record = new Record();
         record->id = id;
+        record->ns = ns;
 
         removed.insert(std::make_pair(id, record));
 
@@ -141,16 +145,18 @@ namespace mongo {
 
             string id = pair.first;
 
-            flushDeletedRecord(connection, id);
+            Record *record = pair.second;
 
-            pair.second->flushed = true;
+            flushDeletedRecord(connection, id, record->ns);
+
+            record->flushed = true;
         }
     }
 
-    void InMemoryRegistry::flushDeletedRecord(ScopedDbConnection &connection, const string &id) const {
+    void InMemoryRegistry::flushDeletedRecord(ScopedDbConnection &connection, const string &id, string ns) const {
         Query query = QUERY("_id" << OID(id));
         log() << "flushDeletedData :: query : " << query.toString();
-        connection.get()->remove("test_db.test_collection", query); // TODO
+        connection.get()->remove(ns, query); // TODO
     }
 
     void InMemoryRegistry::flushUpdatedData(mongo::ScopedDbConnection &connection) {
@@ -170,7 +176,7 @@ namespace mongo {
 
                 Record *bsonObjRecord = updateRecords[j];
                 if (!bsonObjRecord->flushed) {
-                    flushUpdatedBsonObj(connection, id, *(bsonObjRecord->bsonObj));
+                    flushUpdatedBsonObj(connection, id, *(bsonObjRecord->bsonObj), bsonObjRecord->ns);
 
                     bsonObjRecord->flushed = true;
                 }
@@ -237,19 +243,23 @@ namespace mongo {
         return new MutableDocument(document);
     }
 
-    void InMemoryRegistry::flushUpdatedRecord(ScopedDbConnection &connection, string id, BSONObj *update) {
-        flushUpdatedBsonObj(connection, id, *update);
+    void
+    InMemoryRegistry::flushUpdatedRecord(ScopedDbConnection &connection, string id, BSONObj *update, string ns) {
+        flushUpdatedBsonObj(connection, id, *update, ns);
     }
 
-    void InMemoryRegistry::flushUpdatedBsonObj(ScopedDbConnection &connection, const string &id, const BSONObj &obj) const {
+    void InMemoryRegistry::flushUpdatedBsonObj(ScopedDbConnection &connection,
+                                               const string &id,
+                                               const BSONObj &obj,
+                                               string ns) const {
         log() << "InMemoryRegistry::flushUpdatedBsonObj";
         Query query = QUERY("_id" << OID(id));
         log() << "flushUpdatedBsonObj :: query : " << query.toString()
               << " with " << obj.toString();
-        const BSONObj &o = connection.get()->findOne("test_db.test_collection", query);
+        const BSONObj &o = connection.get()->findOne(ns, query);
         if (o.isEmpty()) {
             log() << "!!!!!!!!! object not fount in target !!!!!!!!!";
         }
-        connection.get()->update("test_db.test_collection", query, obj); // TODO
+        connection.get()->update(ns, query, obj); // TODO
     }
 }

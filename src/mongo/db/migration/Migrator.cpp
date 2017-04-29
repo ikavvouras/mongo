@@ -165,7 +165,7 @@ namespace mongo {
         lock.adminUnlock();
     }
 
-    void Migrator::flushDeletedData(const std::list<string> &removedDocumentIds) {
+    void Migrator::flushDeletedData(const std::list<string> &removedDocumentIds, string ns) {
 
         HostAndPort hostAndPort(targetCredentials.host, targetCredentials.port);
         ScopedDbConnection connection(hostAndPort.toString());
@@ -175,7 +175,7 @@ namespace mongo {
                                                       : registry->filterFlushed(removedDocumentIds);
 
         for (string id : flushedDeletedData) {
-            registry->flushDeletedRecord(connection, id); // TODO check/inform about flushed
+            registry->flushDeletedRecord(connection, id, ns); // TODO check/inform about flushed
         }
 
         connection.done();
@@ -196,7 +196,7 @@ namespace mongo {
 //            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
 //            log() << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~";
 //            sleep(5);
-            flushInsertedRecord(connection, bsonObj);
+            flushInsertedRecord(connection, bsonObj, "test_db.test_collection"); // TODO
         }
 
         lock.adminLock();
@@ -207,7 +207,7 @@ namespace mongo {
 
     }
 
-    void Migrator::flushInsertedData(const std::vector<BSONElement> &insertedData) {
+    void Migrator::flushInsertedData(const std::vector<BSONElement> &insertedData, string ns) {
 
         if (flushStatusesContains(FLUSHED_INSERTIONS)) {
 
@@ -218,7 +218,7 @@ namespace mongo {
 
                 log() << "flushInsertedBsonObj :: query : " << obj;
 
-                flushInsertedRecord(connection, obj);
+                flushInsertedRecord(connection, obj, ns);
             }
             connection.done();
 
@@ -226,9 +226,9 @@ namespace mongo {
 
     }
 
-    void Migrator::flushInsertedRecord(ScopedDbConnection &connection, const BSONObj &bsonObj) const {
+    void Migrator::flushInsertedRecord(ScopedDbConnection &connection, const BSONObj &bsonObj, string ns) const {
         log() << "\t\t" << "flushing " << bsonObj.toString();
-        connection.get()->insert("test_db.test_collection", bsonObj); // TODO
+        connection.get()->insert(ns, bsonObj); // TODO
     }
 
     void Migrator::flushUpdatedData() {
@@ -245,7 +245,7 @@ namespace mongo {
         lock.adminUnlock();
     }
 
-    void Migrator::flushUpdatedData(const std::map<string, BSONObj *> updated) {
+    void Migrator::flushUpdatedData(const std::map<string, BSONObj *> updated, string ns) {
         HostAndPort hostAndPort(targetCredentials.host, targetCredentials.port);
         ScopedDbConnection connection(hostAndPort.toString());
 
@@ -262,7 +262,7 @@ namespace mongo {
 
         log() << "Migrator::flushUpdatedData flushedUpdatedRecordIds.size(): " << flushedUpdatedRecordIds.size();
         for (string id : flushedUpdatedRecordIds) {
-            registry->flushUpdatedRecord(connection, id, updated.find(id)->second); // TODO check/inform about flushed
+            registry->flushUpdatedRecord(connection, id, updated.find(id)->second, ns);
         }
 
         connection.done();

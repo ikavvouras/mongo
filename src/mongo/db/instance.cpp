@@ -129,19 +129,21 @@ namespace {
     const StringData getCollectionFromRequest(const rpc::RequestInterface &request, const char *name);
 
     std::map<string, BSONObj *> runUpdateIntoRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder,
-                                                      const rpc::RequestInterface &request, Registry *registry);
+                                                      const rpc::RequestInterface &request, Registry *registry, string ns);
 
     mongo::Message &runFindCommandInRegisty(mongo::Message &response, const mongo::Registry *registry,
                                             rpc::ReplyBuilderInterface &localReplyBuilder, const BSONObj &filter,
                                             BSONObj &resultBsonObj);
 
     std::list<string> runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder,
-                                                 const rpc::RequestInterface &request, Registry *registry);
+                                                 rpc::RequestInterface &request, Registry *registry, string ns);
 
-    void runInsertCommandInRegistry(rpc::ReplyBuilderInterface &replyBuilder, const rpc::RequestInterface &request,
-                                    Registry *registry);
+    void runInsertCommandInRegistry(rpc::ReplyBuilderInterface &replyBuilder, rpc::RequestInterface &request,
+                                    Registry *registry, string ns);
 
     bool containsAll(const BSONObj &inserted, const BSONObj &filterBson);
+
+    string getNamespace(const rpc::RequestInterface &request);
 
     // for diaglog
 inline void opread(Message& m) {
@@ -228,10 +230,10 @@ void beginCommandOp(OperationContext* txn, const NamespaceString& nss, const BSO
 }
 
 void receivedCommand(OperationContext* txn,
-                     const NamespaceString& nss,
-                     Client& client,
-                     DbResponse& dbResponse,
-                     Message& message) {
+                         const NamespaceString& nss,
+                         Client& client,
+                         DbResponse& dbResponse,
+                         Message& message) {
     invariant(nss.isCommand());
 
     const int32_t responseToMsgId = message.header().getId();
@@ -272,20 +274,24 @@ void receivedCommand(OperationContext* txn,
 
         if (req->getCommandName() == "update" && migrator->isRegistryEnabled()) {
             migrator->getLock().userLock();
-            const std::map<string, BSONObj *> &updated = runUpdateIntoRegistry(txn, builder, request, migrator->getRegistry());
+            const std::map<string, BSONObj *> &updated = runUpdateIntoRegistry(txn, builder, request,
+                                                                               migrator->getRegistry(), getNamespace(request).c_str());
 
             if (migrator->isFlusingRegistry()) {
-                migrator->flushUpdatedData(updated);
+
+                migrator->flushUpdatedData(updated, getNamespace(request));
             }
             migrator->getLock().userUnlock();
 
         } else if (req->getCommandName() == "delete" && migrator->isRegistryEnabled()) {
             migrator->getLock().userLock();
 
-            const std::list<string> &removedDocumentIds = runRemoveCommandInRegistry(txn, builder, request, migrator->getRegistry());
+            const std::list<string> &removedDocumentIds = runRemoveCommandInRegistry(txn, builder, request,
+                                                                                     migrator->getRegistry(),
+                                                                                     getNamespace(request));
 
             if (migrator->isFlusingRegistry()) {
-                migrator->flushDeletedData(removedDocumentIds);
+                migrator->flushDeletedData(removedDocumentIds, getNamespace(request));
             }
 
             migrator->getLock().userUnlock();
@@ -293,10 +299,11 @@ void receivedCommand(OperationContext* txn,
         } else if (req->getCommandName() == "insert" && migrator->isRegistryEnabled()) {
             migrator->getLock().userLock();
 
-            runInsertCommandInRegistry(builder, request, migrator->getRegistry());
+            runInsertCommandInRegistry(builder, request, migrator->getRegistry(), getNamespace(request));
 
             if (migrator->isFlusingRegistry()) {
-                migrator->flushInsertedData(request.getCommandArgs().getField("documents").Array());
+                migrator->flushInsertedData(request.getCommandArgs().getField("documents").Array(),
+                                            getNamespace(request));
             }
 
             migrator->getLock().userUnlock();
@@ -332,6 +339,12 @@ void receivedCommand(OperationContext* txn,
 
 }
 
+    string getNamespace(const rpc::RequestInterface &request) {
+        const string &dbName = request.getDatabase().toString();
+        const StringData &collection = getCollectionFromRequest(request, request.getCommandName().toString().c_str());
+        return dbName + "." + collection.toString();
+    }
+
 void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, Message& message) {
     invariant(message.operation() == dbCommand);
 
@@ -366,11 +379,11 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
         }
 
         if (req->getCommandName() == "update" && migrator->isRegistryEnabled()) {
-            runUpdateIntoRegistry(txn, replyBuilder, request, migrator->getRegistry());
+            runUpdateIntoRegistry(txn, replyBuilder, request, migrator->getRegistry(), getNamespace(request));
         } else if (req->getCommandName() == "delete" && migrator->isRegistryEnabled()) {
-            runRemoveCommandInRegistry(txn, replyBuilder, request, migrator->getRegistry());
+            runRemoveCommandInRegistry(txn, replyBuilder, request, migrator->getRegistry(), getNamespace(request));
         } else if (req->getCommandName() == "insert" && migrator->isRegistryEnabled()) {
-            runInsertCommandInRegistry(replyBuilder, request, migrator->getRegistry());
+            runInsertCommandInRegistry(replyBuilder, request, migrator->getRegistry(), getNamespace(request));
         } else {
             runCommands(txn, request, &replyBuilder);
         }
@@ -403,14 +416,12 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
     dbResponse.responseToMsgId = responseToMsgId;
 }
 
-void runInsertCommandInRegistry(rpc::ReplyBuilderInterface &replyBuilder, const rpc::RequestInterface &request,
-                                Registry *registry) {
-//    const string &dbName = request.getDatabase().toString(); TODO add dbName information
-//    const StringData &collection = getCollectionFromRequest(request, "insert"); TODO add collection information
+void runInsertCommandInRegistry(rpc::ReplyBuilderInterface &replyBuilder, rpc::RequestInterface &request, Registry *registry,
+                                string ns) {
 
     int nInserted = 0;
     for (BSONElement newDocument : request.getCommandArgs().getField("documents").Array()) {
-        registry->insert(new BSONObj(newDocument.Obj().copy()));
+        registry->insert(new BSONObj(newDocument.Obj().copy()), ns);
         ++nInserted;
     }
 
@@ -427,8 +438,8 @@ void runInsertCommandInRegistry(rpc::ReplyBuilderInterface &replyBuilder, const 
     replyBuilder.setMetadata(metadataBob.done());
 }
 
-std::list<string> runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder,
-                                             const rpc::RequestInterface &request, Registry *registry) {
+std::list<string> runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder, rpc::RequestInterface &request,
+                                             Registry *registry, string ns) {
     const string &dbName = request.getDatabase().toString();
     const StringData &collection = getCollectionFromRequest(request, "delete");
 
@@ -445,13 +456,11 @@ std::list<string> runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBu
 
         log() << "find called";
 
-
-
         for (BSONElement removingRecord : findResults.getObjectField("cursor").getField("firstBatch").Array()) {
             const string &id = getId(removingRecord);
             log() << "removing( " << id << " ) :: " << removingRecord.toString(false);
 
-            registry->remove(id);
+            registry->remove(id, ns);
 
             removedDocumentIds.push_back(id);
 
@@ -459,7 +468,6 @@ std::list<string> runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBu
         }
 
     }
-
 
     log() << "CommandReplyBuilder ---> ";
     size_t bytesToReserve = 0u;
@@ -476,7 +484,7 @@ std::list<string> runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBu
 }
 
 std::map<string, BSONObj *> runUpdateIntoRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder,
-                                                  const rpc::RequestInterface &request, Registry *registry) {
+                                                 const rpc::RequestInterface &request, Registry *registry, string ns) {
     const string &dbName = request.getDatabase().toString();
     const StringData &collection = getCollectionFromRequest(request, "update");
 
@@ -496,7 +504,7 @@ std::map<string, BSONObj *> runUpdateIntoRegistry(OperationContext *txn, rpc::Re
             log() << "updating( " << id << " ) :: " << updatingRecord.toString(false);
 
             BSONObj *updateCopy = new BSONObj(update.copy());
-            registry->update(id, updateCopy);
+            registry->update(id, updateCopy, ns);
 
             updated.insert(std::make_pair(id, updateCopy));
 

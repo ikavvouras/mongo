@@ -118,15 +118,15 @@ namespace mongo {
 
         void forwardCommand(const rpc::RequestInterface &request, rpc::ReplyBuilderInterface *replyBuilder);
 
-        void flushDeletedData(const std::list<string> &removedDocumentIds);
+        void flushDeletedData(const std::list<string> &removedDocumentIds, string ns);
 
-        void flushUpdatedData(const std::map<string, BSONObj *> updated);
+        void flushUpdatedData(const std::map<string, BSONObj *> updated, string ns);
 
         const std::set<MigrationFlushStatus> &getFlushStatus() const;
 
-        void flushInsertedData(const std::vector<BSONElement> &insertedData);
+        void flushInsertedData(const std::vector<BSONElement> &insertedData, string ns);
 
-        void flushInsertedRecord(ScopedDbConnection &connection, const BSONObj &bsonObj) const;
+        void flushInsertedRecord(ScopedDbConnection &connection, const BSONObj &bsonObj, string ns) const;
     };
 
 }
