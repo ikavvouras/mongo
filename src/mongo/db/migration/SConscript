@@ -7,6 +7,7 @@ env.Library(
     source=[
         "migrate_cmd.cpp",
         "Migrator.cpp",
+        "MigratorLock.cpp",
         "Registry.cpp"
     ],
     LIBDEPS=[],

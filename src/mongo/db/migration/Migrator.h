@@ -7,14 +7,11 @@
 #include <string>
 #include <vector>
 
-#include <mutex>              // std::mutex, std::unique_lock
-#include <condition_variable> // std::condition_variable
-
 #include "mongo/db/migration/Registry.h"
+#include "mongo/db/migration/MigratorLock.h"
 #include "mongo/db/operation_context.h"
 #include "mongo/rpc/request_interface.h"
 #include "mongo/rpc/reply_builder_interface.h"
-#include "MigratorLock.h"
 
 namespace mongo {
 

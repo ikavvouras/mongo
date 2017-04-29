@@ -136,10 +136,15 @@ namespace {
                                             BSONObj &resultBsonObj);
 
     std::list<string> runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder,
-                                                 rpc::RequestInterface &request, Registry *registry, string ns);
+                                                 const rpc::RequestInterface &request, Registry *registry, string ns);
 
-    void runInsertCommandInRegistry(rpc::ReplyBuilderInterface &replyBuilder, rpc::RequestInterface &request,
+    void runInsertCommandInRegistry(rpc::ReplyBuilderInterface &replyBuilder, const rpc::RequestInterface &request,
                                     Registry *registry, string ns);
+
+    void runCommands(Migrator *migrator,
+                     OperationContext* txn,
+                     const rpc::RequestInterface& request,
+                     rpc::ReplyBuilderInterface* replyBuilder);
 
     bool containsAll(const BSONObj &inserted, const BSONObj &filterBson);
 
@@ -229,6 +234,53 @@ void beginCommandOp(OperationContext* txn, const NamespaceString& nss, const BSO
     curop->setNS_inlock(nss.ns());
 }
 
+void runCommands(Migrator *migrator,
+                 OperationContext* txn,
+                 const rpc::RequestInterface& request,
+                 rpc::ReplyBuilderInterface* replyBuilder) {
+
+    if (request.getCommandName() == "update" && migrator->isRegistryEnabled()) {
+        migrator->getLock().userLock();
+        const std::map<string, BSONObj *> &updated = runUpdateIntoRegistry(txn, *replyBuilder, request,
+                                                                           migrator->getRegistry(), getNamespace(request).c_str());
+
+        if (migrator->isFlusingRegistry()) {
+
+            migrator->flushUpdatedData(updated, getNamespace(request));
+        }
+        migrator->getLock().userUnlock();
+
+    } else if (request.getCommandName() == "delete" && migrator->isRegistryEnabled()) {
+        migrator->getLock().userLock();
+
+        const std::list<string> &removedDocumentIds = runRemoveCommandInRegistry(txn, *replyBuilder, request,
+                                                                                 migrator->getRegistry(),
+                                                                                 getNamespace(request));
+
+        if (migrator->isFlusingRegistry()) {
+            migrator->flushDeletedData(removedDocumentIds, getNamespace(request));
+        }
+
+        migrator->getLock().userUnlock();
+
+    } else if (request.getCommandName() == "insert" && migrator->isRegistryEnabled()) {
+        migrator->getLock().userLock();
+
+        runInsertCommandInRegistry(*replyBuilder, request, migrator->getRegistry(), getNamespace(request));
+
+        if (migrator->isFlusingRegistry()) {
+            migrator->flushInsertedData(request.getCommandArgs().getField("documents").Array(),
+                                        getNamespace(request));
+        }
+
+        migrator->getLock().userUnlock();
+
+    } else {
+        runCommands(txn, request, replyBuilder);
+    }
+
+}
+
 void receivedCommand(OperationContext* txn,
                          const NamespaceString& nss,
                          Client& client,
@@ -272,45 +324,7 @@ void receivedCommand(OperationContext* txn,
                               << ") for $cmd type ns - can only be 1 or -1",
                 nToReturn == 1 || nToReturn == -1);
 
-        if (req->getCommandName() == "update" && migrator->isRegistryEnabled()) {
-            migrator->getLock().userLock();
-            const std::map<string, BSONObj *> &updated = runUpdateIntoRegistry(txn, builder, request,
-                                                                               migrator->getRegistry(), getNamespace(request).c_str());
-
-            if (migrator->isFlusingRegistry()) {
-
-                migrator->flushUpdatedData(updated, getNamespace(request));
-            }
-            migrator->getLock().userUnlock();
-
-        } else if (req->getCommandName() == "delete" && migrator->isRegistryEnabled()) {
-            migrator->getLock().userLock();
-
-            const std::list<string> &removedDocumentIds = runRemoveCommandInRegistry(txn, builder, request,
-                                                                                     migrator->getRegistry(),
-                                                                                     getNamespace(request));
-
-            if (migrator->isFlusingRegistry()) {
-                migrator->flushDeletedData(removedDocumentIds, getNamespace(request));
-            }
-
-            migrator->getLock().userUnlock();
-
-        } else if (req->getCommandName() == "insert" && migrator->isRegistryEnabled()) {
-            migrator->getLock().userLock();
-
-            runInsertCommandInRegistry(builder, request, migrator->getRegistry(), getNamespace(request));
-
-            if (migrator->isFlusingRegistry()) {
-                migrator->flushInsertedData(request.getCommandArgs().getField("documents").Array(),
-                                            getNamespace(request));
-            }
-
-            migrator->getLock().userUnlock();
-
-        } else {
-            runCommands(txn, request, &builder);
-        }
+        runCommands(migrator, txn, request, &builder);
 
         op->debug().iscommand = true;
     } catch (const DBException& exception) {
@@ -378,15 +392,7 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
             curOp->markCommand_inlock();
         }
 
-        if (req->getCommandName() == "update" && migrator->isRegistryEnabled()) {
-            runUpdateIntoRegistry(txn, replyBuilder, request, migrator->getRegistry(), getNamespace(request));
-        } else if (req->getCommandName() == "delete" && migrator->isRegistryEnabled()) {
-            runRemoveCommandInRegistry(txn, replyBuilder, request, migrator->getRegistry(), getNamespace(request));
-        } else if (req->getCommandName() == "insert" && migrator->isRegistryEnabled()) {
-            runInsertCommandInRegistry(replyBuilder, request, migrator->getRegistry(), getNamespace(request));
-        } else {
-            runCommands(txn, request, &replyBuilder);
-        }
+        runCommands(migrator, txn, request, &replyBuilder);
 
         curOp->debug().iscommand = true;
 
@@ -416,7 +422,7 @@ void receivedRpc(OperationContext* txn, Client& client, DbResponse& dbResponse, 
     dbResponse.responseToMsgId = responseToMsgId;
 }
 
-void runInsertCommandInRegistry(rpc::ReplyBuilderInterface &replyBuilder, rpc::RequestInterface &request, Registry *registry,
+void runInsertCommandInRegistry(rpc::ReplyBuilderInterface &replyBuilder, const rpc::RequestInterface &request, Registry *registry,
                                 string ns) {
 
     int nInserted = 0;
@@ -438,7 +444,8 @@ void runInsertCommandInRegistry(rpc::ReplyBuilderInterface &replyBuilder, rpc::R
     replyBuilder.setMetadata(metadataBob.done());
 }
 
-std::list<string> runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder, rpc::RequestInterface &request,
+std::list<string> runRemoveCommandInRegistry(OperationContext *txn, rpc::ReplyBuilderInterface &replyBuilder,
+                                             const rpc::RequestInterface &request,
                                              Registry *registry, string ns) {
     const string &dbName = request.getDatabase().toString();
     const StringData &collection = getCollectionFromRequest(request, "delete");
