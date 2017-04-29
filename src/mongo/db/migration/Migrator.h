@@ -14,6 +14,7 @@
 #include "mongo/db/operation_context.h"
 #include "mongo/rpc/request_interface.h"
 #include "mongo/rpc/reply_builder_interface.h"
+#include "MigratorLock.h"
 
 namespace mongo {
 
@@ -37,27 +38,6 @@ namespace mongo {
         FLUSHED_DELETIONS,
         FLUSHED_INSERTIONS,
         FLUSHED_UPDATES
-    };
-
-    /**
-     * multiple users, single admin lock, with priority in the admin lock
-     */
-    class MigratorLock {
-    private:
-        std::mutex mtx;
-        std::condition_variable cv;
-
-        bool admin = false;
-        long readers = 0;
-    public:
-
-        void adminLock();
-
-        void adminUnlock();
-
-        void userLock();
-
-        void userUnlock();
     };
 
     class Migrator {

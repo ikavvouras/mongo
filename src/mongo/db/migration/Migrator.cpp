@@ -284,47 +284,4 @@ namespace mongo {
         return lock;
     }
 
-    void MigratorLock::adminLock() {
-        std::unique_lock<std::mutex> lock(mtx);
-
-        admin = true; // priority in admin
-
-        while (readers > 0) {
-            cv.wait(lock);
-        }
-
-//        log() << " ---> adminLock";
-    }
-
-    void MigratorLock::adminUnlock() {
-        std::unique_lock<std::mutex> lock(mtx);
-
-        admin = false;
-
-//        log() << " ---> adminUnlock";
-
-        cv.notify_all();
-    }
-
-    void MigratorLock::userLock() {
-        std::unique_lock<std::mutex> lock(mtx);
-        while (admin) {
-            cv.wait(lock);
-        }
-
-        ++readers;
-
-//        log() << " ---> userLock (" << readers << ")";
-
-    }
-
-    void MigratorLock::userUnlock() {
-        std::unique_lock<std::mutex> lock(mtx);
-
-        --readers;
-
-//        log() << " ---> userUnlock (" << readers << ")";
-
-        cv.notify_all();
-    }
 }
