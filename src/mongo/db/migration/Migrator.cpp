@@ -50,6 +50,8 @@ namespace mongo {
         flushInsertedData();
 
         flushUpdatedData();
+
+        getThroughputLock().flushFinished();
     }
 
     void Migrator::migrateData(MongoServerCredentials targetCredentials,
@@ -237,7 +239,10 @@ namespace mongo {
         HostAndPort hostAndPort(targetCredentials.host, targetCredentials.port);
         ScopedDbConnection connection(hostAndPort.toString());
 
-        registry->flushUpdatedData(connection);
+        UpdateCommand updateCommand(connection, getThroughputLock());
+
+        registry->flushUpdatedData(updateCommand);
+
         connection.done();
 
         lock.adminLock();
@@ -261,8 +266,16 @@ namespace mongo {
                                                            : registry->filterFlushed(updatedDocumentIds);
 
         log() << "Migrator::flushUpdatedData flushedUpdatedRecordIds.size(): " << flushedUpdatedRecordIds.size();
+        
+        UpdateCommand updateCommand(connection, getThroughputLock());
+        
         for (string id : flushedUpdatedRecordIds) {
-            registry->flushUpdatedRecord(connection, id, updated.find(id)->second, ns);
+            Record record;
+            record.bsonObj = updated.find(id)->second;
+            record.id = id;
+            record.ns = ns;
+
+            updateCommand.execute(record);
         }
 
         connection.done();
@@ -282,6 +295,10 @@ namespace mongo {
 
     MigratorLock &Migrator::getLock() {
         return lock;
+    }
+
+    MigratorThroughputLock &Migrator::getThroughputLock() {
+        return throughputLock;
     }
 
 }

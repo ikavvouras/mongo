@@ -49,6 +49,9 @@ namespace mongo {
 
         MigratorLock lock;
 
+        MigratorThroughputLock throughputLock;
+    private:
+
         void getLocalDatabases(OperationContext *txn, std::vector<string> &dbs);
 
         void flushDeletedData();
@@ -61,6 +64,8 @@ namespace mongo {
 
     public:
         MigratorLock &getLock();
+
+        MigratorThroughputLock &getThroughputLock();
 
         // TODO make private
         void enableRegistry();

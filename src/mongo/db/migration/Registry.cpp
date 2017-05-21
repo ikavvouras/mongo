@@ -159,7 +159,7 @@ namespace mongo {
         connection.get()->remove(ns, query); // TODO
     }
 
-    void InMemoryRegistry::flushUpdatedData(mongo::ScopedDbConnection &connection) {
+    void InMemoryRegistry::flushUpdatedData(UpdateCommand &updateCommand) {
         for (const std::pair<const string, std::vector<Record *>> &pair : updated) {
 
             string id = pair.first;
@@ -175,10 +175,10 @@ namespace mongo {
 //                sleep(5);
 
                 Record *bsonObjRecord = updateRecords[j];
-                if (!bsonObjRecord->flushed) {
-                    flushUpdatedBsonObj(connection, id, *(bsonObjRecord->bsonObj), bsonObjRecord->ns);
+                bsonObjRecord->id = id;
 
-                    bsonObjRecord->flushed = true;
+                if (!bsonObjRecord->flushed) {
+                    updateCommand.execute(*bsonObjRecord);
                 }
             }
 
@@ -243,23 +243,27 @@ namespace mongo {
         return new MutableDocument(document);
     }
 
-    void
-    InMemoryRegistry::flushUpdatedRecord(ScopedDbConnection &connection, string id, BSONObj *update, string ns) {
-        flushUpdatedBsonObj(connection, id, *update, ns);
-    }
+    void UpdateCommand::execute(Record &record) {
 
-    void InMemoryRegistry::flushUpdatedBsonObj(ScopedDbConnection &connection,
-                                               const string &id,
-                                               const BSONObj &obj,
-                                               string ns) const {
+        throughputLock.flushLock();
+
         log() << "InMemoryRegistry::flushUpdatedBsonObj";
-        Query query = QUERY("_id" << OID(id));
+        Query query = QUERY("_id" << OID(record.id));
+
         log() << "flushUpdatedBsonObj :: query : " << query.toString()
-              << " with " << obj.toString();
-        const BSONObj &o = connection.get()->findOne(ns, query);
+              << " with " << record.bsonObj->toString();
+
+        const BSONObj &o = connection.get()->findOne(record.ns, query);
         if (o.isEmpty()) {
             log() << "!!!!!!!!! object not fount in target !!!!!!!!!";
         }
-        connection.get()->update(ns, query, obj); // TODO
+        connection.get()->update(record.ns, query, *(record.bsonObj));
+
+        record.flushed = true;
+
+        throughputLock.flushUnlock();
     }
+
+    UpdateCommand::UpdateCommand(ScopedDbConnection &connection, MigratorThroughputLock &throughputLock)
+            : connection(connection), throughputLock(throughputLock) {}
 }

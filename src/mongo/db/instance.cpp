@@ -241,10 +241,16 @@ void runCommands(Migrator *migrator,
 
     if (request.getCommandName() == "update" && migrator->isRegistryEnabled()) {
         migrator->getLock().userLock();
+
+        if (migrator->isFlusingRegistry()) {
+            migrator->getThroughputLock().requestLock();
+        }
+
         const std::map<string, BSONObj *> &updated = runUpdateIntoRegistry(txn, *replyBuilder, request,
                                                                            migrator->getRegistry(), getNamespace(request).c_str());
 
         if (migrator->isFlusingRegistry()) {
+            migrator->getThroughputLock().requestUnlock();
 
             migrator->flushUpdatedData(updated, getNamespace(request));
         }

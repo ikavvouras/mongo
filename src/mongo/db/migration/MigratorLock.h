@@ -29,6 +29,28 @@ namespace mongo {
 
         void userUnlock();
     };
+
+    class MigratorThroughputLock {
+    private:
+        std::mutex mtx;
+        std::condition_variable cv;
+
+        long flushedOperations = 0;
+        long incomingOperations = 0;
+
+        bool hasFinishedFlushing = false;
+    public:
+
+        void flushLock();
+
+        void flushUnlock();
+
+        void flushFinished();
+
+        void requestLock();
+
+        void requestUnlock();
+    };
 }
 
 #endif //MONGO_MIGRATORLOCK_H

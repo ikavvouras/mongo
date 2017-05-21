@@ -11,6 +11,8 @@
 #include "mongo/bson/bsonobj.h"
 #include "mongo/db/pipeline/document.h"
 
+#include "mongo/db/migration/MigratorLock.h"
+
 namespace mongo {
 
     using std::string;
@@ -26,6 +28,22 @@ namespace mongo {
         string ns;
         string id;
         bool flushed = false;
+    };
+
+    class DatabaseCommand {
+    public:
+        virtual void execute(Record &record) = 0;
+    };
+
+    class UpdateCommand : public DatabaseCommand {
+    private:
+        ScopedDbConnection &connection;
+        MigratorThroughputLock &throughputLock;
+
+    public:
+        UpdateCommand(ScopedDbConnection &connection, MigratorThroughputLock &throughputLock);
+
+        void execute(Record &record);
     };
 
     class Registry {
@@ -50,11 +68,9 @@ namespace mongo {
 
         virtual void flushDeletedRecord(ScopedDbConnection &connection, const string &id, string ns) const = 0;
 
-        virtual void flushUpdatedData(mongo::ScopedDbConnection &connection) = 0;
+        virtual void flushUpdatedData(UpdateCommand &updateCommand) = 0;
 
         virtual std::list<string> filterFlushed(const std::list<string> &removedDocumentIds) = 0;
-
-        virtual void flushUpdatedRecord(ScopedDbConnection &connection, string id, BSONObj *update, string ns)= 0;
     };
 
     class InMemoryRegistry : public Registry {
@@ -89,15 +105,12 @@ namespace mongo {
 
         void flushDeletedData(mongo::ScopedDbConnection &connection);
 
-        void flushUpdatedData(mongo::ScopedDbConnection &connection);
+        void flushUpdatedData(UpdateCommand &updateCommand);
 
         void flushDeletedRecord(ScopedDbConnection &connection, const string &id, string ns) const;
 
         std::list<string> filterFlushed(const std::list<string> &removedDocumentIds);
 
-        void flushUpdatedRecord(ScopedDbConnection &connection, string id, BSONObj *update, string ns);
-
-        void flushUpdatedBsonObj(ScopedDbConnection &connection, const string &id, const BSONObj &obj, string ns) const;
     };
 
 }
